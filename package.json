@@ -1,0 +1,13 @@
+{
+  "name": "odinkod",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node app.mjs",
+    "test": "node app.mjs --self-test && node admitad-sync.mjs --self-test && node promo-sync.mjs --self-test && node billing.mjs --self-test",
+    "sync:promos": "node promo-sync.mjs",
+    "bill": "node billing.mjs"
+  },
+  "engines": { "node": ">=20" }
+}
