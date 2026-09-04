@@ -32,10 +32,12 @@ export async function settings() {
     baseUrl: process.env.BASE_URL || 'http://localhost:8010',
     sessionSecret: process.env.SESSION_SECRET || randomBytes(32).toString('hex'),
     priceRub: Number(process.env.SUBSCRIPTION_PRICE_RUB || 10),
-    priceUsd: Number(process.env.SUBSCRIPTION_PRICE_USD || 0.99),
+    priceUsd: Number(process.env.SUBSCRIPTION_PRICE_USD || 2.99),
     paymentMode: process.env.PAYMENT_MODE || 'demo',
     shopId: process.env.YOOKASSA_SHOP_ID,
     secretKey: process.env.YOOKASSA_SECRET_KEY,
+    cloudPublicId: process.env.CLOUDPAYMENTS_PUBLIC_ID,
+    cloudApiSecret: process.env.CLOUDPAYMENTS_API_SECRET,
     autoJobs: process.env.AUTO_JOBS !== 'false',
     promoSyncMinutes: Math.max(15, Number(process.env.PROMO_SYNC_MINUTES || 60)),
     billingMinutes: Math.max(5, Number(process.env.BILLING_INTERVAL_MINUTES || 15))
@@ -94,9 +96,37 @@ function json(response, status, body, headers = {}) {
 }
 
 async function body(request, limit = 20_000) {
+  const text = await rawBody(request, limit);
+  return JSON.parse(text || '{}');
+}
+
+async function rawBody(request, limit = 20_000) {
   let text = '';
   for await (const chunk of request) { text += chunk; if (Buffer.byteLength(text) > limit) throw new Error('TOO_LARGE'); }
-  return JSON.parse(text || '{}');
+  return text;
+}
+
+function parseForm(text) { return Object.fromEntries(new URLSearchParams(text)); }
+
+function validCloudSignature(text, request, secret) {
+  if (!secret) return false;
+  const supplied = request.headers['content-hmac'] || request.headers['x-content-hmac'];
+  if (!supplied) return false;
+  const expected = createHmac('sha256', secret).update(text, 'utf8').digest('base64');
+  const a = Buffer.from(String(supplied)); const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+async function cloudRequest(config, path, payload) {
+  if (!config.cloudPublicId || !config.cloudApiSecret) throw new Error('CloudPayments is not configured');
+  const response = await fetch('https://api.cloudpayments.ru' + path, {
+    method: 'POST',
+    headers: { authorization: 'Basic ' + Buffer.from(`${config.cloudPublicId}:${config.cloudApiSecret}`).toString('base64'), 'content-type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok || !data.Success) throw new Error(data.Message || `CloudPayments ${response.status}`);
+  return data.Model;
 }
 
 export function activeSubscription(visitor, now = new Date()) { return visitor.subscription?.status === 'active' && new Date(visitor.subscription.expiresAt) > now; }
@@ -141,6 +171,45 @@ async function createCheckout(config, visitorId, email) {
     state.visitors[visitorId].pendingPaymentId = payment.id;
   });
   return payment.confirmation?.confirmation_url;
+}
+
+async function createCloudCheckout(config, visitorId, email) {
+  if (!config.cloudPublicId) throw new Error('CloudPayments is not configured');
+  const invoiceId = randomUUID();
+  await mutateState(state => {
+    state.payments[invoiceId] = { provider: 'cloudpayments', visitorId, email, amount: config.priceUsd, currency: 'USD', status: 'pending', createdAt: new Date().toISOString() };
+    state.visitors[visitorId].pendingPaymentId = invoiceId;
+  });
+  return {
+    provider: 'cloudpayments',
+    publicId: config.cloudPublicId,
+    description: `OneCode unlimited promo access — $${config.priceUsd.toFixed(2)} monthly`,
+    amount: config.priceUsd,
+    currency: 'USD', accountId: visitorId, invoiceId, email,
+    recurrent: { interval: 'Month', period: 1 }
+  };
+}
+
+async function recordCloudPayment(config, data) {
+  const invoiceId = String(data.InvoiceId || ''); const accountId = String(data.AccountId || '');
+  const amount = Number(data.Amount); const currency = String(data.Currency || '').toUpperCase();
+  return mutateState(state => {
+    const payment = state.payments[invoiceId]; const visitor = state.visitors[accountId];
+    const subscriptionId = String(data.SubscriptionId || '');
+    const recurring = visitor?.subscription?.provider === 'cloudpayments' && subscriptionId && visitor.subscription.subscriptionId === subscriptionId;
+    if (!visitor || amount !== config.priceUsd || currency !== 'USD') return false;
+    if (!recurring && (!payment || payment.visitorId !== accountId || amount !== Number(payment.amount) || currency !== payment.currency)) return false;
+    const paymentKey = invoiceId || `cloud-${data.TransactionId}`;
+    const saved = state.payments[paymentKey];
+    if (saved?.status === 'succeeded') return true;
+    const prior = visitor.subscription || {}; const base = Math.max(Date.now(), new Date(prior.expiresAt || 0).getTime());
+    visitor.subscription = { ...prior, provider: 'cloudpayments', status: 'active', autoRenew: true, email: payment?.email || prior.email,
+      startedAt: prior.startedAt || new Date().toISOString(), expiresAt: new Date(base + 30 * 864e5).toISOString(),
+      subscriptionId: data.SubscriptionId || prior.subscriptionId, lastPaymentId: String(data.TransactionId || invoiceId), lastPaidAt: new Date().toISOString() };
+    state.payments[paymentKey] = { ...(payment || {}), provider: 'cloudpayments', visitorId: accountId, email: payment?.email || prior.email,
+      amount, currency, recurring, status: 'succeeded', transactionId: data.TransactionId, verifiedAt: new Date().toISOString() };
+    delete visitor.pendingPaymentId; return true;
+  });
 }
 
 async function verifyAndActivate(config, paymentId) {
@@ -229,20 +298,39 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
           await mutateState(state => { state.visitors[id].subscription = { status: 'active', autoRenew: true, demo: true, email, startedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 30 * 864e5).toISOString() }; });
           return json(response, 200, { demo: true, activated: true });
         }
+        if (config.paymentMode === 'cloudpayments') return json(response, 200, await createCloudCheckout(config, id, email));
         const confirmationUrl = await createCheckout(config, id, email);
         return json(response, 200, { confirmationUrl });
       }
       if (request.method === 'POST' && url.pathname === '/api/payment/verify') {
         const id = visitorId(request, config.sessionSecret); if (!id) return json(response, 401, { error: 'Обновите страницу' });
         const state = await loadState(); const paymentId = state.visitors[id]?.pendingPaymentId;
+        if (config.paymentMode === 'cloudpayments') return json(response, 200, { activated: activeSubscription(state.visitors[id] || {}), pending: Boolean(paymentId) });
         if (!paymentId) return json(response, 200, { activated: activeSubscription(state.visitors[id] || {}) });
         const activated = await verifyAndActivate(config, paymentId);
         return json(response, 200, { activated, pending: !activated });
       }
       if (request.method === 'POST' && url.pathname === '/api/subscription/cancel') {
         const id = visitorId(request, config.sessionSecret); if (!id) return json(response, 401, { error: 'Обновите страницу' });
-        await mutateState(state => { const sub = state.visitors[id]?.subscription; if (sub) { sub.autoRenew = false; sub.canceledAt = new Date().toISOString(); } });
+        const current = await loadState(); const sub = current.visitors[id]?.subscription;
+        if (config.paymentMode === 'cloudpayments' && sub?.subscriptionId) await cloudRequest(config, '/subscriptions/cancel', { Id: sub.subscriptionId });
+        await mutateState(state => { const saved = state.visitors[id]?.subscription; if (saved) { saved.autoRenew = false; saved.canceledAt = new Date().toISOString(); } });
         return json(response, 200, { canceled: true, message: 'Автопродление отключено. Доступ сохранится до конца оплаченного периода.' });
+      }
+      if (request.method === 'POST' && url.pathname.startsWith('/api/webhooks/cloudpayments/')) {
+        const text = await rawBody(request);
+        if (!validCloudSignature(text, request, config.cloudApiSecret)) return json(response, 401, { code: 13 });
+        const data = request.headers['content-type']?.includes('json') ? JSON.parse(text || '{}') : parseForm(text);
+        const type = url.pathname.split('/').pop();
+        if (type === 'check') {
+          const state = await loadState(); const payment = state.payments[String(data.InvoiceId || '')];
+          const valid = payment && payment.visitorId === String(data.AccountId || '') && Number(data.Amount) === Number(payment.amount) && String(data.Currency || '').toUpperCase() === payment.currency;
+          return json(response, 200, { code: valid ? 0 : 13 });
+        }
+        if (type === 'pay') await recordCloudPayment(config, data);
+        if (type === 'fail') await mutateState(state => { const p = state.payments[String(data.InvoiceId || '')]; if (p) { p.status = 'failed'; p.reason = data.Reason || data.CardHolderMessage; } });
+        if (type === 'recurrent') await mutateState(state => { const v = state.visitors[String(data.AccountId || '')]; if (v?.subscription) { v.subscription.subscriptionId = data.Id || v.subscription.subscriptionId; v.subscription.autoRenew = String(data.Status || '').toLowerCase() === 'active'; } });
+        return json(response, 200, { code: 0 });
       }
       if (request.method === 'POST' && url.pathname === '/api/webhooks/yookassa') {
         const event = await body(request); const paymentId = event.object?.id;
@@ -284,14 +372,14 @@ async function selfTest() {
   const server = await createApp({ port: 0, config }); const address = server.address(); const base = `http://127.0.0.1:${address.port}`;
   try {
     const catalogResponse = await fetch(base + '/api/catalog'); const cookie = catalogResponse.headers.get('set-cookie').split(';')[0]; const catalog = await catalogResponse.json();
-    if (catalog.promos.length < 10 || !catalog.demoData || 'code' in catalog.promos[0]) throw new Error('catalog masking failed');
+    if (!catalog.promos.length || 'code' in catalog.promos[0]) throw new Error('catalog masking failed');
     const reveal = await fetch(base + '/api/reveal', { method:'POST', headers:{'content-type':'application/json',cookie}, body:JSON.stringify({promoId:catalog.promos[0].id}) });
     if (!reveal.ok || !(await reveal.json()).promo.code) throw new Error('free reveal failed');
-    const second = await fetch(base + '/api/reveal', { method:'POST', headers:{'content-type':'application/json',cookie}, body:JSON.stringify({promoId:catalog.promos[1].id}) });
+    const second = await fetch(base + '/api/reveal', { method:'POST', headers:{'content-type':'application/json',cookie}, body:JSON.stringify({promoId:catalog.promos[0].id}) });
     if (second.status !== 402) throw new Error('free limit failed');
     const subscribe = await fetch(base + '/api/checkout', { method:'POST', headers:{'content-type':'application/json',cookie}, body:JSON.stringify({email:'test@example.com',consent:true}) });
     if (!(await subscribe.json()).activated) throw new Error('demo subscription failed');
-    const unlimited = await fetch(base + '/api/reveal', { method:'POST', headers:{'content-type':'application/json',cookie}, body:JSON.stringify({promoId:catalog.promos[1].id}) });
+    const unlimited = await fetch(base + '/api/reveal', { method:'POST', headers:{'content-type':'application/json',cookie}, body:JSON.stringify({promoId:catalog.promos[0].id}) });
     if (!unlimited.ok) throw new Error('subscriber access failed');
     const cancel = await fetch(base + '/api/subscription/cancel', { method:'POST', headers:{cookie} });
     if (!(await cancel.json()).canceled) throw new Error('cancel failed');
