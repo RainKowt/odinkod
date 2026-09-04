@@ -14,10 +14,10 @@ function https(value){ if(!value)return null; if(value.startsWith('//'))return '
 function money(value){ const m=String(value).match(/[\d.,]+/); return m?Number(m[0].replace(',','.')):0; }
 
 export function parseProducts(xml, merchant='Store', limit=120) {
-  const blocks=[...(xml.match(/<offer\b[\s\S]*?<\/offer>/gi)||[]),...(xml.match(/<item\b[\s\S]*?<\/item>/gi)||[])];
+  const blocks=[...(xml.match(/<offer\b[\s\S]*?<\/offer>/gi)||[]),...(xml.match(/<item\b[\s\S]*?<\/item>/gi)||[]),...(xml.match(/<entry\b[\s\S]*?<\/entry>/gi)||[])];
   const seen=new Set(); const products=[];
   for(const block of blocks){
-    const id=attr(block,'id')||field(block,['id','offer_id']); const title=field(block,['name','title','model']); const imageUrl=https(field(block,['picture','image_link','image','photo'])); const affiliateUrl=https(field(block,['url','link'])); const price=money(field(block,['price','sale_price'])); const oldPrice=money(field(block,['oldprice','old_price']));
+    const id=attr(block,'id')||field(block,['id','offer_id']); const title=field(block,['name','title','model']); const imageUrl=https(field(block,['picture','image_link','image','photo'])); const affiliateUrl=https(field(block,['url','link'])); const regularPrice=money(field(block,['price'])); const salePrice=money(field(block,['sale_price'])); const price=salePrice||regularPrice; const oldPrice=salePrice&&regularPrice>salePrice?regularPrice:money(field(block,['oldprice','old_price']));
     if(!id||!title||!imageUrl||!affiliateUrl||!price||seen.has(id))continue; seen.add(id);
     const discount=oldPrice>price?Math.round((1-price/oldPrice)*100):null;
     products.push({id:`product-${id}`,merchant,title,category:field(block,['categoryId','product_type'])||'Products',imageUrl,affiliateUrl,price,oldPrice:oldPrice||null,currency:field(block,['currencyId'])||'USD',discount:discount?`${discount}% off`:null,terms:field(block,['description','sales_notes']),sourceName:'Admitad product feed'});
