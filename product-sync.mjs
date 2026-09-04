@@ -26,7 +26,7 @@ export function parseProducts(xml, merchant='Store', limit=120) {
   return products;
 }
 
-async function limitedText(url){ const r=await fetch(url,{signal:AbortSignal.timeout(30000)}); if(!r.ok)throw new Error(`Product feed HTTP ${r.status}`); const reader=r.body.getReader(); let size=0,text=''; const decoder=new TextDecoder(); while(true){const {done,value}=await reader.read(); if(done)break; size+=value.length; text+=decoder.decode(value,{stream:true}); if(size>=MAX_FEED_BYTES){await reader.cancel();break;}} return text; }
+async function limitedText(rawUrl){ const url=String(rawUrl).replace(/&amp;/g,'&').replace(/^http:/i,'https:'); const r=await fetch(url,{headers:{accept:'application/xml,text/xml;q=0.9,*/*;q=0.5','user-agent':'Mozilla/5.0 OneCode product catalog'},signal:AbortSignal.timeout(30000)}); if(!r.ok)throw new Error(`Product feed HTTP ${r.status}`); const reader=r.body.getReader(); let size=0,text=''; const decoder=new TextDecoder(); while(true){const {done,value}=await reader.read(); if(done)break; size+=value.length; text+=decoder.decode(value,{stream:true}); if(size>=MAX_FEED_BYTES){await reader.cancel();break;}} return text; }
 
 export async function syncProducts(){
   try{loadEnv(await readFile(new URL('.env',ROOT),'utf8'))}catch{}
