@@ -64,13 +64,16 @@ export async function fetchAdmitadToken({ clientId, clientSecret, fetchImpl = fe
   return cachedToken.value;
 }
 
-export async function fetchAdmitadCoupons({ token, clientId, clientSecret, website, now = new Date(), fetchImpl = fetch } = {}) {
+export async function fetchAdmitadCoupons({ token, clientId, clientSecret, website, region = 'US', now = new Date(), fetchImpl = fetch } = {}) {
   if (!website) throw new Error('Укажите ADMITAD_WEBSITE_ID в .env');
   const accessToken = token || await fetchAdmitadToken({ clientId, clientSecret, fetchImpl });
   const url = new URL(`https://api.admitad.com/coupons/website/${encodeURIComponent(website)}/`);
-  url.searchParams.set('region', 'RU');
+  url.searchParams.set('region', region);
   url.searchParams.set('limit', '500');
-  const response = await fetchImpl(url, { headers: { authorization: `Bearer ${accessToken}` } });
+  const response = await fetchImpl(url, {
+    headers: { authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(20_000)
+  });
   if (!response.ok) throw new Error(`Admitad API: ${response.status} ${await response.text()}`);
   return normalizeCoupons(await response.json(), now);
 }
@@ -81,7 +84,8 @@ export async function sync() {
   const clientId = process.env.ADMITAD_CLIENT_ID;
   const clientSecret = process.env.ADMITAD_CLIENT_SECRET;
   const website = process.env.ADMITAD_WEBSITE_ID;
-  const promos = await fetchAdmitadCoupons({ token, clientId, clientSecret, website });
+  const region = process.env.ADMITAD_REGION || 'US';
+  const promos = await fetchAdmitadCoupons({ token, clientId, clientSecret, website, region });
   const target = new URL('data/promos.live.json', ROOT);
   const temp = new URL('data/promos.live.tmp.json', ROOT);
   await writeFile(temp, JSON.stringify(promos, null, 2), 'utf8');
@@ -104,7 +108,7 @@ async function selfTest() {
     return { ok: true, json: async () => ({ results: [{ id: 4, status: 'active', promocode: 'RU10', date_end: '2099-01-01T00:00:00Z' }] }) };
   };
   const fetched = await fetchAdmitadCoupons({ clientId: 'client', clientSecret: 'secret', website: '2991802', fetchImpl, now: new Date('2026-09-03T00:00:00Z') });
-  if (fetched.length !== 1 || calls.length !== 2 || !calls[1].url.includes('/coupons/website/2991802/')) throw new Error('OAuth/API маршрут Admitad не прошёл тест');
+  if (fetched.length !== 1 || calls.length !== 2 || !calls[1].url.includes('/coupons/website/2991802/') || !calls[1].url.includes('region=US')) throw new Error('OAuth/API маршрут Admitad не прошёл тест');
   console.log('ADMITAD_SELF_TEST_OK: остаются только активные, неистёкшие купоны с кодом.');
 }
 

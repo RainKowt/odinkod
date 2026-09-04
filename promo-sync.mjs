@@ -79,6 +79,7 @@ export async function syncAllPromos({ now = new Date(), logger = console } = {})
       clientId: process.env.ADMITAD_CLIENT_ID,
       clientSecret: process.env.ADMITAD_CLIENT_SECRET,
       website: process.env.ADMITAD_WEBSITE_ID,
+      region: process.env.ADMITAD_REGION || 'US',
       now
     }) });
   }
