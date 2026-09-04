@@ -66,6 +66,12 @@ export function mergePromos(groups) {
 export async function syncAllPromos({ now = new Date(), logger = console } = {}) {
   try { loadEnv(await readFile(new URL('.env', ROOT), 'utf8')); } catch {}
   const jobs = [];
+  try {
+    const approved = JSON.parse(await readFile(new URL('data/promos.approved.json', ROOT), 'utf8'));
+    jobs.push({ name: 'Проверенные предложения', run: async () => normalizePartnerFeed(approved, 'Admitad Tracking Promo', now) });
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
   const admitadConfigured = process.env.ADMITAD_ACCESS_TOKEN || (process.env.ADMITAD_CLIENT_ID && process.env.ADMITAD_CLIENT_SECRET);
   if (admitadConfigured && process.env.ADMITAD_WEBSITE_ID) {
     jobs.push({ name: 'Admitad', run: () => fetchAdmitadCoupons({
