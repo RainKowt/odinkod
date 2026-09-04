@@ -10,6 +10,7 @@ const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = resolve(ROOT, 'public');
 const STATE_FILE = resolve(ROOT, 'data/state.json');
 const LIVE_PROMOS = resolve(ROOT, 'data/promos.live.json');
+const LIVE_PRODUCTS = resolve(ROOT, 'data/products.live.json');
 const APPROVED_PROMOS = resolve(ROOT, 'data/promos.approved.json');
 const DEMO_PROMOS = resolve(ROOT, 'data/promos.demo.json');
 const SESSION_SECONDS = 180;
@@ -102,6 +103,11 @@ function json(response, status, body, headers = {}) {
 async function body(request, limit = 20_000) {
   const text = await rawBody(request, limit);
   return JSON.parse(text || '{}');
+}
+
+async function loadProducts() {
+  try { return JSON.parse(await readFile(LIVE_PRODUCTS, 'utf8')); }
+  catch (error) { if (error.code === 'ENOENT') return []; throw error; }
 }
 
 async function rawBody(request, limit = 20_000) {
@@ -379,6 +385,7 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
         await mutateState(state => { const saved = state.visitors[id]?.subscription; if (saved) { saved.autoRenew = false; saved.canceledAt = new Date().toISOString(); } });
         return json(response, 200, { canceled: true, message: 'Автопродление отключено. Доступ сохранится до конца оплаченного периода.' });
       }
+      if (request.method === 'GET' && url.pathname === '/api/products') return json(response, 200, { products: await loadProducts() });
       if (request.method === 'POST' && url.pathname.startsWith('/api/webhooks/cloudpayments/')) {
         const text = await rawBody(request);
         if (!validCloudSignature(text, request, config.cloudApiSecret)) return json(response, 401, { code: 13 });
@@ -425,12 +432,18 @@ async function startBackgroundJobs(config) {
     try { const { syncAllPromos } = await import('./promo-sync.mjs'); await syncAllPromos(); }
     catch (error) { console.error('Автообновление промокодов:', error.message); }
   };
+  const runProductSync = async () => {
+    try { const { syncProducts } = await import('./product-sync.mjs'); await syncProducts(); }
+    catch (error) { console.error('Автообновление товаров:', error.message); }
+  };
   const runRenewals = async () => {
     try { const { runBilling } = await import('./billing.mjs'); const result = await runBilling({ config }); if (result.length) console.log('Автопродления:', result); }
     catch (error) { console.error('Автопродления:', error.message); }
   };
   runPromoSync();
+  runProductSync();
   setInterval(runPromoSync, config.promoSyncMinutes * 60_000).unref();
+  setInterval(runProductSync, config.promoSyncMinutes * 60_000).unref();
   if (config.paymentMode === 'yookassa') {
     runRenewals();
     setInterval(runRenewals, config.billingMinutes * 60_000).unref();

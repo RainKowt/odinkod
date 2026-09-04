@@ -41,16 +41,17 @@ export function normalizeCoupons(payload, now = new Date()) {
   }));
 }
 
-let cachedToken = null;
+const cachedTokens = new Map();
 
-export async function fetchAdmitadToken({ clientId, clientSecret, fetchImpl = fetch } = {}) {
+export async function fetchAdmitadToken({ clientId, clientSecret, scope = 'coupons_for_website', fetchImpl = fetch } = {}) {
   if (!clientId || !clientSecret) throw new Error('Укажите ADMITAD_CLIENT_ID и ADMITAD_CLIENT_SECRET');
+  const cachedToken = cachedTokens.get(scope);
   if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.value;
 
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
     client_id: clientId,
-    scope: 'coupons_for_website'
+    scope
   });
   const basic = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
   const response = await fetchImpl('https://api.admitad.com/token/', {
@@ -64,11 +65,11 @@ export async function fetchAdmitadToken({ clientId, clientSecret, fetchImpl = fe
   if (!response.ok) throw new Error(`Admitad OAuth: ${response.status} ${await response.text()}`);
   const payload = await response.json();
   if (!payload.access_token) throw new Error('Admitad OAuth не вернул access_token');
-  cachedToken = {
+  cachedTokens.set(scope, {
     value: payload.access_token,
     expiresAt: Date.now() + Math.max(60, Number(payload.expires_in || 3600)) * 1000
-  };
-  return cachedToken.value;
+  });
+  return payload.access_token;
 }
 
 export async function fetchAdmitadCoupons({ token, clientId, clientSecret, website, region = 'US', now = new Date(), fetchImpl = fetch } = {}) {
