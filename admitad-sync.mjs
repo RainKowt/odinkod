@@ -18,13 +18,13 @@ export function normalizeCoupons(payload, now = new Date()) {
   const items = Array.isArray(payload) ? payload : payload.results || [];
   return items.filter(item => item.status === 'active' && item.promocode && (!item.date_end || new Date(item.date_end) > now)).map(item => ({
     id: `admitad-${item.id}`,
-    merchant: item.campaign?.name || 'Магазин',
-    title: item.name || item.short_name || 'Промокод',
+    merchant: item.campaign?.name || 'Store',
+    title: item.name || item.short_name || 'Promo code',
     code: item.promocode,
-    category: item.categories?.[0]?.name || 'Другое',
-    audience: item.customer_type === 'new_customers' ? 'Новые пользователи' : 'Все пользователи',
-    discount: item.discount || 'Выгода по условиям акции',
-    terms: item.description || 'Условия на сайте магазина',
+    category: item.categories?.[0]?.name || 'Other',
+    audience: item.customer_type === 'new_customers' ? 'New customers' : 'All customers',
+    discount: item.discount || 'See offer terms',
+    terms: item.description || 'See the merchant website for terms',
     validUntil: item.date_end ? item.date_end.slice(0, 10) : null,
     verifiedAt: now.toISOString().slice(0, 10),
     sourceName: 'Admitad',
@@ -69,6 +69,7 @@ export async function fetchAdmitadCoupons({ token, clientId, clientSecret, websi
   const accessToken = token || await fetchAdmitadToken({ clientId, clientSecret, fetchImpl });
   const url = new URL(`https://api.admitad.com/coupons/website/${encodeURIComponent(website)}/`);
   url.searchParams.set('region', region);
+  url.searchParams.set('language', 'en');
   url.searchParams.set('limit', '500');
   const response = await fetchImpl(url, {
     headers: { authorization: `Bearer ${accessToken}` },
