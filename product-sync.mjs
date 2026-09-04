@@ -17,6 +17,8 @@ export function parseProducts(xml, merchant='Store', limit=120) {
   const blocks=[...(xml.match(/<offer\b[\s\S]*?<\/offer>/gi)||[]),...(xml.match(/<item\b[\s\S]*?<\/item>/gi)||[]),...(xml.match(/<entry\b[\s\S]*?<\/entry>/gi)||[])];
   const seen=new Set(); const products=[];
   for(const block of blocks){
+    const availability=field(block,['availability','available']).toLowerCase();
+    if(availability&&/out of stock|sold out|unavailable|discontinued|false|no/.test(availability))continue;
     const id=attr(block,'id')||field(block,['id','offer_id']); const title=field(block,['name','title','model']); const imageUrl=https(field(block,['picture','image_link','image','photo'])); const affiliateUrl=https(field(block,['url','link'])); const regularPrice=money(field(block,['price'])); const salePrice=money(field(block,['sale_price'])); const price=salePrice||regularPrice; const oldPrice=salePrice&&regularPrice>salePrice?regularPrice:money(field(block,['oldprice','old_price']));
     if(!id||!title||!imageUrl||!affiliateUrl||!price||seen.has(id))continue; seen.add(id);
     const discount=oldPrice>price?Math.round((1-price/oldPrice)*100):null;
@@ -31,9 +33,10 @@ async function limitedText(rawUrl){ const url=String(rawUrl).replace(/&amp;/g,'&
 export async function syncProducts(){
   try{loadEnv(await readFile(new URL('.env',ROOT),'utf8'))}catch{}
   const clientId=process.env.ADMITAD_CLIENT_ID, clientSecret=process.env.ADMITAD_CLIENT_SECRET, website=process.env.ADMITAD_WEBSITE_ID;
-  const manualFeed=process.env.ADMITAD_PRODUCT_FEED_URL;
-  if(manualFeed){
-    const products=parseProducts(await limitedText(manualFeed),'AliExpress',1200);
+  const manualFeeds=(process.env.ADMITAD_PRODUCT_FEED_URLS||process.env.ADMITAD_PRODUCT_FEED_URL||'').split(/[\r\n,]+/).map(value=>value.trim()).filter(Boolean);
+  if(manualFeeds.length){
+    const groups=[]; for(const feed of manualFeeds){try{groups.push(parseProducts(await limitedText(feed),'AliExpress',500))}catch(error){console.warn(`Manual product feed: ${error.message}`)}}
+    const products=groups.flat().filter((item,index,all)=>all.findIndex(other=>other.id===item.id)===index).slice(0,3000);
     if(!products.length)throw new Error('The configured Admitad product feed returned no products');
     const target=new URL('data/products.live.json',ROOT),temp=new URL('data/products.live.tmp.json',ROOT); await writeFile(temp,JSON.stringify(products,null,2));await rename(temp,target);console.log(`Товарный каталог обновлён: ${products.length} позиций.`);return products;
   }
