@@ -31,6 +31,12 @@ async function limitedText(rawUrl){ const url=String(rawUrl).replace(/&amp;/g,'&
 export async function syncProducts(){
   try{loadEnv(await readFile(new URL('.env',ROOT),'utf8'))}catch{}
   const clientId=process.env.ADMITAD_CLIENT_ID, clientSecret=process.env.ADMITAD_CLIENT_SECRET, website=process.env.ADMITAD_WEBSITE_ID;
+  const manualFeed=process.env.ADMITAD_PRODUCT_FEED_URL;
+  if(manualFeed){
+    const products=parseProducts(await limitedText(manualFeed),'AliExpress',300);
+    if(!products.length)throw new Error('The configured Admitad product feed returned no products');
+    const target=new URL('data/products.live.json',ROOT),temp=new URL('data/products.live.tmp.json',ROOT); await writeFile(temp,JSON.stringify(products,null,2));await rename(temp,target);console.log(`Товарный каталог обновлён: ${products.length} позиций.`);return products;
+  }
   if(!clientId||!clientSecret||!website)throw new Error('Admitad product feeds are not configured');
   const token=await fetchAdmitadToken({clientId,clientSecret,scope:'advcampaigns_for_website'});
   const url=new URL(`https://api.admitad.com/advcampaigns/website/${website}/`); url.searchParams.set('connection_status','active');url.searchParams.set('has_tool','products');url.searchParams.set('limit','100');url.searchParams.set('language','en');
