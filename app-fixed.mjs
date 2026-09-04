@@ -32,12 +32,16 @@ export async function settings() {
     baseUrl: process.env.BASE_URL || 'http://localhost:8010',
     sessionSecret: process.env.SESSION_SECRET || randomBytes(32).toString('hex'),
     priceRub: Number(process.env.SUBSCRIPTION_PRICE_RUB || 10),
-    priceUsd: Number(process.env.SUBSCRIPTION_PRICE_USD || 2.99),
+    priceUsd: Number(process.env.SUBSCRIPTION_PRICE_USD || 5),
     paymentMode: process.env.PAYMENT_MODE || 'demo',
     shopId: process.env.YOOKASSA_SHOP_ID,
     secretKey: process.env.YOOKASSA_SECRET_KEY,
     cloudPublicId: process.env.CLOUDPAYMENTS_PUBLIC_ID,
     cloudApiSecret: process.env.CLOUDPAYMENTS_API_SECRET,
+    lavaApiKey: process.env.LAVA_API_KEY,
+    lavaWebhookSecret: process.env.LAVA_WEBHOOK_SECRET,
+    lavaOfferId: process.env.LAVA_OFFER_ID,
+    lavaProductId: process.env.LAVA_PRODUCT_ID,
     autoJobs: process.env.AUTO_JOBS !== 'false',
     promoSyncMinutes: Math.max(15, Number(process.env.PROMO_SYNC_MINUTES || 60)),
     billingMinutes: Math.max(5, Number(process.env.BILLING_INTERVAL_MINUTES || 15))
@@ -129,6 +133,16 @@ async function cloudRequest(config, path, payload) {
   return data.Model;
 }
 
+async function lavaRequest(config, path, payload) {
+  if (!config.lavaApiKey) throw new Error('lava.top is not configured');
+  const response = await fetch('https://gate.lava.top' + path, {
+    method: 'POST', headers: { 'x-api-key': config.lavaApiKey, 'content-type': 'application/json' }, body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || data.message || `lava.top ${response.status}`);
+  return data;
+}
+
 export function activeSubscription(visitor, now = new Date()) { return visitor.subscription?.status === 'active' && new Date(visitor.subscription.expiresAt) > now; }
 function publicPromo(promo) { const { code, ...safe } = promo; return safe; }
 
@@ -188,6 +202,52 @@ async function createCloudCheckout(config, visitorId, email) {
     currency: 'USD', accountId: visitorId, invoiceId, email,
     recurrent: { interval: 'Month', period: 1 }
   };
+}
+
+async function createLavaCheckout(config, visitorId, email) {
+  if (!config.lavaOfferId) throw new Error('lava.top offer is not configured');
+  const invoice = await lavaRequest(config, '/api/v2/invoice', {
+    email, offerId: config.lavaOfferId, currency: 'USD', periodicity: 'MONTHLY', buyerLanguage: 'EN',
+    clientUtm: { utm_source: 'onecode', utm_medium: 'website', utm_campaign: 'membership' }
+  });
+  if (!invoice.id || !invoice.paymentUrl) throw new Error('lava.top did not return a checkout URL');
+  await mutateState(state => {
+    state.payments[invoice.id] = { provider: 'lava', visitorId, email: email.toLowerCase(), amount: config.priceUsd, currency: 'USD', status: 'pending', createdAt: new Date().toISOString() };
+    state.visitors[visitorId].pendingPaymentId = invoice.id;
+  });
+  return invoice.paymentUrl;
+}
+
+async function recordLavaEvent(config, event) {
+  const contractId = String(event.contractId || ''); const parentId = String(event.parentContractId || '');
+  const email = String(event.buyer?.email || '').trim().toLowerCase();
+  return mutateState(state => {
+    let payment = state.payments[contractId];
+    let visitor = payment && state.visitors[payment.visitorId];
+    if (!visitor && parentId) visitor = Object.values(state.visitors).find(v => v.subscription?.provider === 'lava' && v.subscription.contractId === parentId);
+    if (!visitor && event.eventType === 'subscription.cancelled') visitor = Object.values(state.visitors).find(v => v.subscription?.provider === 'lava' && v.subscription.contractId === contractId);
+    if (!visitor || (payment?.email && payment.email !== email)) return false;
+    if (config.lavaProductId && event.product?.id !== config.lavaProductId) return false;
+    if (event.eventType === 'payment.success' || event.eventType === 'subscription.recurring.payment.success') {
+      if (Number(event.amount) !== config.priceUsd || String(event.currency).toUpperCase() !== 'USD') return false;
+      if (state.payments[contractId]?.status === 'succeeded') return true;
+      const prior = visitor.subscription || {}; const base = Math.max(Date.now(), new Date(prior.expiresAt || 0).getTime());
+      visitor.subscription = { ...prior, provider: 'lava', status: 'active', autoRenew: true, email,
+        contractId: parentId || contractId, startedAt: prior.startedAt || new Date().toISOString(),
+        expiresAt: new Date(base + 30 * 864e5).toISOString(), lastPaymentId: contractId, lastPaidAt: new Date().toISOString() };
+      state.payments[contractId] = { ...(payment || {}), provider: 'lava', visitorId: visitor.id, email, amount: Number(event.amount), currency: 'USD', status: 'succeeded', verifiedAt: new Date().toISOString() };
+      delete visitor.pendingPaymentId; return true;
+    }
+    if (event.eventType === 'payment.failed' || event.eventType === 'subscription.recurring.payment.failed') {
+      if (payment) { payment.status = 'failed'; payment.reason = event.errorMessage; }
+      return true;
+    }
+    if (event.eventType === 'subscription.cancelled') {
+      if (visitor.subscription) { visitor.subscription.autoRenew = false; visitor.subscription.canceledAt = event.cancelledAt || new Date().toISOString(); if (event.willExpireAt) visitor.subscription.expiresAt = event.willExpireAt; }
+      return true;
+    }
+    return false;
+  });
 }
 
 async function recordCloudPayment(config, data) {
@@ -299,6 +359,7 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
           return json(response, 200, { demo: true, activated: true });
         }
         if (config.paymentMode === 'cloudpayments') return json(response, 200, await createCloudCheckout(config, id, email));
+        if (config.paymentMode === 'lava') return json(response, 200, { confirmationUrl: await createLavaCheckout(config, id, email) });
         const confirmationUrl = await createCheckout(config, id, email);
         return json(response, 200, { confirmationUrl });
       }
@@ -313,6 +374,7 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
       if (request.method === 'POST' && url.pathname === '/api/subscription/cancel') {
         const id = visitorId(request, config.sessionSecret); if (!id) return json(response, 401, { error: 'Обновите страницу' });
         const current = await loadState(); const sub = current.visitors[id]?.subscription;
+        if (config.paymentMode === 'lava' && sub?.provider === 'lava') return json(response, 200, { canceled: false, manageUrl: 'https://app.lava.top/my-purchases', message: 'Manage and cancel the subscription securely in your lava.top account.' });
         if (config.paymentMode === 'cloudpayments' && sub?.subscriptionId) await cloudRequest(config, '/subscriptions/cancel', { Id: sub.subscriptionId });
         await mutateState(state => { const saved = state.visitors[id]?.subscription; if (saved) { saved.autoRenew = false; saved.canceledAt = new Date().toISOString(); } });
         return json(response, 200, { canceled: true, message: 'Автопродление отключено. Доступ сохранится до конца оплаченного периода.' });
@@ -331,6 +393,14 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
         if (type === 'fail') await mutateState(state => { const p = state.payments[String(data.InvoiceId || '')]; if (p) { p.status = 'failed'; p.reason = data.Reason || data.CardHolderMessage; } });
         if (type === 'recurrent') await mutateState(state => { const v = state.visitors[String(data.AccountId || '')]; if (v?.subscription) { v.subscription.subscriptionId = data.Id || v.subscription.subscriptionId; v.subscription.autoRenew = String(data.Status || '').toLowerCase() === 'active'; } });
         return json(response, 200, { code: 0 });
+      }
+      if (request.method === 'POST' && url.pathname === '/api/webhooks/lava') {
+        const text = await rawBody(request); const supplied = String(request.headers['x-api-key'] || '');
+        const expected = String(config.lavaWebhookSecret || '');
+        const a = Buffer.from(supplied); const b = Buffer.from(expected);
+        if (!expected || a.length !== b.length || !timingSafeEqual(a, b)) return json(response, 401, { error: 'Invalid webhook key' });
+        const event = JSON.parse(text || '{}'); await recordLavaEvent(config, event);
+        return json(response, 200, { ok: true });
       }
       if (request.method === 'POST' && url.pathname === '/api/webhooks/yookassa') {
         const event = await body(request); const paymentId = event.object?.id;

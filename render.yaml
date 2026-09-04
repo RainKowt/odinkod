@@ -15,7 +15,7 @@ services:
       - key: PAYMENT_MODE
         value: demo
       - key: SUBSCRIPTION_PRICE_USD
-        value: 2.99
+        value: 5
       - key: AUTO_JOBS
         value: false
       - key: SESSION_SECRET
