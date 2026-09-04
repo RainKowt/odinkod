@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = resolve(ROOT, 'public');
 const STATE_FILE = resolve(ROOT, 'data/state.json');
-const LIVE_PROMOS = resolve(ROOT, 'data/promos.live.json');
+
 const DEMO_PROMOS = resolve(ROOT, 'data/promos.demo.json');
 const SESSION_SECONDS = 180;
 let writeQueue = Promise.resolve();
@@ -63,7 +63,7 @@ export async function mutateState(mutator) {
 
 async function loadPromos() {
   let source = LIVE_PROMOS;
-  try { await stat(source); } catch { source = DEMO_PROMOS; }
+  const LIVE_PROMOS = resolve(ROOT, 'data/promos.live.json');const APPROVED_PROMOS = resolve(ROOT, 'data/promos.approved.json');
   const promos = JSON.parse(await readFile(source, 'utf8'));
   const today = new Date().toISOString().slice(0, 10);
   return promos.filter(item => !item.validUntil || item.validUntil >= today);
