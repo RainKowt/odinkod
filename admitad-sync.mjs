@@ -5,6 +5,12 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = new URL('.', import.meta.url);
 
+function absoluteUrl(value) {
+  if (!value) return null;
+  if (value.startsWith('//')) return `https:${value}`;
+  return /^https?:\/\//i.test(value) ? value.replace(/^http:/i, 'https:') : null;
+}
+
 function loadEnv(text) {
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
@@ -28,8 +34,9 @@ export function normalizeCoupons(payload, now = new Date()) {
     validUntil: item.date_end ? item.date_end.slice(0, 10) : null,
     verifiedAt: now.toISOString().slice(0, 10),
     sourceName: 'Admitad',
-    sourceUrl: item.gotolink || item.promolink,
-    affiliateUrl: item.gotolink || item.promolink,
+    imageUrl: absoluteUrl(item.image || item.picture || item.logo || item.campaign?.image),
+    sourceUrl: absoluteUrl(item.goto_link || item.gotolink || item.promolink || item.frameset_link),
+    affiliateUrl: absoluteUrl(item.goto_link || item.gotolink || item.promolink || item.frameset_link),
     demo: false
   }));
 }
@@ -97,11 +104,11 @@ export async function sync() {
 
 async function selfTest() {
   const rows = normalizeCoupons({ results: [
-    { id: 1, status: 'active', promocode: 'LIVE10', date_end: '2099-01-01T00:00:00Z', name: 'Скидка', campaign: { name: 'Магазин' }, categories: [{ name: 'Дом' }], gotolink: 'https://example.com' },
+    { id: 1, status: 'active', promocode: 'LIVE10', date_end: '2099-01-01T00:00:00Z', name: 'Скидка', campaign: { name: 'Магазин' }, categories: [{ name: 'Дом' }], goto_link: 'http://example.com', image: '//cdn.example.com/product.jpg' },
     { id: 2, status: 'expired', promocode: 'OLD', date_end: '2020-01-01T00:00:00Z' },
     { id: 3, status: 'active', date_end: '2099-01-01T00:00:00Z' }
   ]}, new Date('2026-09-03T00:00:00Z'));
-  if (rows.length !== 1 || rows[0].code !== 'LIVE10' || rows[0].demo) throw new Error('Нормализация купонов не прошла тест');
+  if (rows.length !== 1 || rows[0].code !== 'LIVE10' || rows[0].demo || rows[0].affiliateUrl !== 'https://example.com' || rows[0].imageUrl !== 'https://cdn.example.com/product.jpg') throw new Error('Нормализация купонов не прошла тест');
   const calls = [];
   const fetchImpl = async (url, options = {}) => {
     calls.push({ url: String(url), options });

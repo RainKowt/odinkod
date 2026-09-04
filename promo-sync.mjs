@@ -32,6 +32,7 @@ export function normalizePartnerFeed(payload, sourceName = 'Партнёр', now
     validUntil: (item.validUntil || item.date_end || '').slice(0, 10) || null,
     verifiedAt: now.toISOString().slice(0, 10),
     sourceName,
+    imageUrl: item.imageUrl || item.image || item.picture || item.photo || item.image_link || null,
     sourceUrl: item.sourceUrl || item.url || null,
     affiliateUrl: item.affiliateUrl || item.url || null,
     demo: false
