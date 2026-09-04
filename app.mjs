@@ -266,7 +266,7 @@ async function startBackgroundJobs(config) {
     try { const { runBilling } = await import('./billing.mjs'); const result = await runBilling({ config }); if (result.length) console.log('Автопродления:', result); }
     catch (error) { console.error('Автопродления:', error.message); }
   };
-  if (process.env.ADMITAD_ACCESS_TOKEN || process.env.PARTNER_FEEDS_JSON) {
+  if (process.env.ADMITAD_ACCESS_TOKEN || process.env.ADMITAD_CLIENT_ID || process.env.PARTNER_FEEDS_JSON) {
     runPromoSync();
     setInterval(runPromoSync, config.promoSyncMinutes * 60_000).unref();
   }

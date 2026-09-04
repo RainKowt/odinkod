@@ -66,8 +66,15 @@ export function mergePromos(groups) {
 export async function syncAllPromos({ now = new Date(), logger = console } = {}) {
   try { loadEnv(await readFile(new URL('.env', ROOT), 'utf8')); } catch {}
   const jobs = [];
-  if (process.env.ADMITAD_ACCESS_TOKEN && process.env.ADMITAD_WEBSITE_ID) {
-    jobs.push({ name: 'Admitad', run: () => fetchAdmitadCoupons({ token: process.env.ADMITAD_ACCESS_TOKEN, website: process.env.ADMITAD_WEBSITE_ID, now }) });
+  const admitadConfigured = process.env.ADMITAD_ACCESS_TOKEN || (process.env.ADMITAD_CLIENT_ID && process.env.ADMITAD_CLIENT_SECRET);
+  if (admitadConfigured && process.env.ADMITAD_WEBSITE_ID) {
+    jobs.push({ name: 'Admitad', run: () => fetchAdmitadCoupons({
+      token: process.env.ADMITAD_ACCESS_TOKEN,
+      clientId: process.env.ADMITAD_CLIENT_ID,
+      clientSecret: process.env.ADMITAD_CLIENT_SECRET,
+      website: process.env.ADMITAD_WEBSITE_ID,
+      now
+    }) });
   }
   for (const config of feedConfigs(process.env.PARTNER_FEEDS_JSON)) jobs.push({ name: config.name, run: () => fetchFeed(config, now) });
   if (!jobs.length) return { skipped: true, count: 0, sources: [], errors: [] };
