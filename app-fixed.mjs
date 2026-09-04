@@ -32,6 +32,7 @@ export async function settings() {
     baseUrl: process.env.BASE_URL || 'http://localhost:8010',
     sessionSecret: process.env.SESSION_SECRET || randomBytes(32).toString('hex'),
     priceRub: Number(process.env.SUBSCRIPTION_PRICE_RUB || 10),
+    priceUsd: Number(process.env.SUBSCRIPTION_PRICE_USD || 0.99),
     paymentMode: process.env.PAYMENT_MODE || 'demo',
     shopId: process.env.YOOKASSA_SHOP_ID,
     secretKey: process.env.YOOKASSA_SECRET_KEY,
@@ -199,11 +200,11 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url, 'http://localhost');
-      if (request.method === 'GET' && url.pathname === '/health') return json(response, 200, { ok: true, product: 'ОдинКод', paymentMode: config.paymentMode });
+      if (request.method === 'GET' && url.pathname === '/health') return json(response, 200, { ok: true, product: 'OneCode', market: 'US', paymentMode: config.paymentMode });
       if (request.method === 'GET' && url.pathname === '/api/catalog') {
         const { visitor, cookie } = await ensureVisitor(request, response, config);
         const promos = await loadPromos();
-        return json(response, 200, { promos: promos.map(publicPromo), session: { startedAt: visitor.startedAt, expiresAt: new Date(new Date(visitor.startedAt).getTime() + SESSION_SECONDS * 1000).toISOString(), freeClaimed: visitor.freeClaimed, subscribed: activeSubscription(visitor), subscription: visitor.subscription || null }, priceRub: config.priceRub, paymentMode: config.paymentMode, demoData: promos.some(p => p.demo) }, cookie ? { 'set-cookie': cookie } : {});
+        return json(response, 200, { promos: promos.map(publicPromo), session: { startedAt: visitor.startedAt, expiresAt: new Date(new Date(visitor.startedAt).getTime() + SESSION_SECONDS * 1000).toISOString(), freeClaimed: visitor.freeClaimed, subscribed: activeSubscription(visitor), subscription: visitor.subscription || null }, priceUsd: config.priceUsd, currency: 'USD', paymentMode: config.paymentMode, demoData: promos.some(p => p.demo) }, cookie ? { 'set-cookie': cookie } : {});
       }
       if (request.method === 'POST' && url.pathname === '/api/reveal') {
         const id = visitorId(request, config.sessionSecret);
