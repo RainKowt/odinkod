@@ -1,0 +1,56 @@
+{
+  "slug": "three-subscriptions-real-footage",
+  "title": "3 subscriptions quietly wasting your money",
+  "caption": "Check these before the next renewal. Find verified promo codes at OneCode. #savemoney #subscriptions #deals",
+  "audio": "001-voice.wav",
+  "scenes": [
+    {
+      "file": "../sources/phone-city.mp4",
+      "start": 1,
+      "duration": 3,
+      "caption": "STOP PAYING\nTHESE 3 SUBSCRIPTIONS",
+      "source": "https://coverr.co/videos/smiling-woman-using-smartphone-in-city",
+      "rights": "Coverr Free Commercial Rights"
+    },
+    {
+      "file": "../sources/tablet-purchase.mp4",
+      "start": 1,
+      "duration": 4,
+      "caption": "#3 CLOUD STORAGE\nYOU DON'T USE",
+      "source": "https://coverr.co/videos/focused-student-studying-outdoors",
+      "rights": "Coverr Free Commercial Rights"
+    },
+    {
+      "file": "../sources/grocery-shopping.mp4",
+      "start": 0,
+      "duration": 4,
+      "caption": "#2 DELIVERY TRIAL\nTHAT AUTO-RENEWED",
+      "source": "https://coverr.co/videos/shopping-for-fresh-fruits",
+      "rights": "Coverr Free Commercial Rights"
+    },
+    {
+      "file": "../sources/phone-city.mp4",
+      "start": 10,
+      "duration": 4,
+      "caption": "#1 STREAMING\nOVERLAP",
+      "source": "https://coverr.co/videos/smiling-woman-using-smartphone-in-city",
+      "rights": "Coverr Free Commercial Rights"
+    },
+    {
+      "file": "../sources/tablet-purchase.mp4",
+      "start": 8,
+      "duration": 4,
+      "caption": "CHECK YOUR STATEMENT\nCANCEL ONE TODAY",
+      "source": "https://coverr.co/videos/focused-student-studying-outdoors",
+      "rights": "Coverr Free Commercial Rights"
+    },
+    {
+      "file": "../sources/phone-city.mp4",
+      "start": 20,
+      "duration": 5,
+      "caption": "ONECODE\nPICK 1 CODE FREE",
+      "source": "https://coverr.co/videos/smiling-woman-using-smartphone-in-city",
+      "rights": "Coverr Free Commercial Rights"
+    }
+  ]
+}

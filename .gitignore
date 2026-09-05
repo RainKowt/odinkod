@@ -2,4 +2,7 @@
 data/state.json
 data/promos.live.json
 marketing/automation/references/
+marketing/automation/sources/
+marketing/automation/output/onecode-real-footage-*.mp4
+marketing/automation/output/onecode-real-footage-*-contact.png
 
