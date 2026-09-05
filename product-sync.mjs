@@ -12,6 +12,12 @@ function field(block, names) { for(const name of names){ const m=block.match(new
 function attr(block, name) { const m=block.match(new RegExp(`\\s${name}=["']([^"']+)["']`,'i')); return m?decode(m[1]):''; }
 function https(value){ if(!value)return null; if(value.startsWith('//'))return 'https:'+value; return /^https?:\/\//i.test(value)?value.replace(/^http:/i,'https:'):null; }
 function money(value){ const m=String(value).match(/[\d.,]+/); return m?Number(m[0].replace(',','.')):0; }
+function inferredMerchant(merchant, affiliateUrl='') {
+  const value=String(affiliateUrl).toLowerCase();
+  if(value.includes('alibaba.com')||value.includes('offer.alibaba.com'))return 'Alibaba';
+  if(value.includes('aliexpress.com'))return 'AliExpress';
+  return merchant;
+}
 
 export function parseProducts(xml, merchant='Store', limit=120) {
   const blocks=[...(xml.match(/<offer\b[\s\S]*?<\/offer>/gi)||[]),...(xml.match(/<item\b[\s\S]*?<\/item>/gi)||[]),...(xml.match(/<entry\b[\s\S]*?<\/entry>/gi)||[])];
@@ -22,7 +28,8 @@ export function parseProducts(xml, merchant='Store', limit=120) {
     const id=attr(block,'id')||field(block,['id','offer_id']); const title=field(block,['name','title','model']); const imageUrl=https(field(block,['picture','image_link','image','photo'])); const affiliateUrl=https(field(block,['url','link'])); const regularPrice=money(field(block,['price'])); const salePrice=money(field(block,['sale_price'])); const price=salePrice||regularPrice; const oldPrice=salePrice&&regularPrice>salePrice?regularPrice:money(field(block,['oldprice','old_price']));
     if(!id||!title||!imageUrl||!affiliateUrl||!price||seen.has(id))continue; seen.add(id);
     const discount=oldPrice>price?Math.round((1-price/oldPrice)*100):null;
-    products.push({id:`product-${id}`,merchant,title,category:field(block,['categoryId','product_type'])||'Products',imageUrl,affiliateUrl,price,oldPrice:oldPrice||null,currency:field(block,['currencyId'])||'USD',discount:discount?`${discount}% off`:null,terms:field(block,['description','sales_notes']),sourceName:'Admitad product feed'});
+    const inStock=availability?/in stock|available|true|yes|instock/.test(availability):null;
+    products.push({id:`product-${id}`,merchant:inferredMerchant(merchant,affiliateUrl),title,category:field(block,['categoryId','product_type'])||'Products',imageUrl,affiliateUrl,price,oldPrice:oldPrice||null,currency:field(block,['currencyId'])||'USD',discount:discount?`${discount}% off`:null,terms:field(block,['description','sales_notes']),availability:availability||null,inStock,sourceName:'Admitad product feed'});
     if(products.length>=limit)break;
   }
   return products;
@@ -50,5 +57,5 @@ export async function syncProducts(){
   const target=new URL('data/products.live.json',ROOT),temp=new URL('data/products.live.tmp.json',ROOT); await writeFile(temp,JSON.stringify(products,null,2));await rename(temp,target);console.log(`Товарный каталог обновлён: ${products.length} позиций.`);return products;
 }
 
-function selfTest(){const xml='<shop><offers><offer id="7"><name>Phone</name><price>799</price><oldprice>999</oldprice><currencyId>USD</currencyId><picture>https://img.test/phone.jpg</picture><url>https://shop.test/phone</url></offer></offers></shop>';const p=parseProducts(xml,'Shop');if(p.length!==1||p[0].discount!=='20% off'||p[0].imageUrl!=='https://img.test/phone.jpg')throw new Error('product parser failed');console.log('PRODUCT_SYNC_SELF_TEST_OK')}
+function selfTest(){const xml='<shop><offers><offer id="7"><name>Phone</name><available>true</available><price>799</price><oldprice>999</oldprice><currencyId>USD</currencyId><picture>https://img.test/phone.jpg</picture><url>https://www.alibaba.com/product-detail/phone_7.html</url></offer><offer id="8"><name>Gone</name><available>false</available><price>1</price><picture>https://img.test/gone.jpg</picture><url>https://shop.test/gone</url></offer></offers></shop>';const p=parseProducts(xml,'AliExpress');if(p.length!==1||p[0].discount!=='20% off'||p[0].imageUrl!=='https://img.test/phone.jpg'||p[0].merchant!=='Alibaba'||p[0].inStock!==true)throw new Error('product parser failed');console.log('PRODUCT_SYNC_SELF_TEST_OK')}
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){if(process.argv.includes('--self-test'))selfTest();else syncProducts().catch(e=>{console.error(e.message);process.exitCode=1})}

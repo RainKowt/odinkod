@@ -78,7 +78,11 @@ async function loadPromos() {
   }
   const promos = JSON.parse(await readFile(source, 'utf8'));
   const today = new Date().toISOString().slice(0, 10);
-  return promos.filter(item => !item.validUntil || item.validUntil >= today);
+  return promos.filter(item => {
+    const availableByDate=!item.validUntil || item.validUntil >= today;
+    const excludesUS=/not available[^\r\n]*\bUS\b/i.test(String(item.terms||''));
+    return availableByDate&&!excludesUS;
+  });
 }
 
 function sign(id, secret) { return createHmac('sha256', secret).update(id).digest('base64url'); }
@@ -106,7 +110,14 @@ async function body(request, limit = 20_000) {
 }
 
 async function loadProducts() {
-  try { return JSON.parse(await readFile(LIVE_PRODUCTS, 'utf8')); }
+  try {
+    const products=JSON.parse(await readFile(LIVE_PRODUCTS, 'utf8'));
+    return products.filter(item=>item.inStock!==false).map(item=>{
+      const link=String(item.affiliateUrl||'').toLowerCase();
+      const merchant=link.includes('alibaba.com')?'Alibaba':link.includes('aliexpress.com')?'AliExpress':item.merchant;
+      return {...item,merchant,inStock:item.inStock??null};
+    });
+  }
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }
 }
 
@@ -322,11 +333,13 @@ async function recordCanceledPayment(config, paymentId) {
 async function serveStatic(request, response) {
   const url = new URL(request.url, 'http://localhost');
   const name = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\/+/, '');
-  if (!['index.html'].includes(name)) return response.writeHead(404).end('Not found');
+  const allowed=['index.html','legal.html','robots.txt','sitemap.xml'];
+  if (!allowed.includes(name)) return response.writeHead(404).end('Not found');
   const path = resolve(PUBLIC, name);
   if (!path.startsWith(PUBLIC + sep)) return response.writeHead(404).end('Not found');
   const info = await stat(path);
-  response.writeHead(200, { 'content-type': extname(path) === '.html' ? 'text/html; charset=utf-8' : 'application/octet-stream', 'content-length': info.size, 'x-content-type-options': 'nosniff' });
+  const types={'.html':'text/html; charset=utf-8','.txt':'text/plain; charset=utf-8','.xml':'application/xml; charset=utf-8'};
+  response.writeHead(200, { 'content-type': types[extname(path)]||'application/octet-stream', 'content-length': info.size, 'x-content-type-options': 'nosniff' });
   createReadStream(path).pipe(response);
 }
 
@@ -343,23 +356,23 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
       }
       if (request.method === 'POST' && url.pathname === '/api/reveal') {
         const id = visitorId(request, config.sessionSecret);
-        if (!id) return json(response, 401, { error: 'Обновите страницу' });
+        if (!id) return json(response, 401, { error: 'Refresh the page and try again.' });
         const input = await body(request); const promos = await loadPromos(); const promo = promos.find(p => p.id === input.promoId);
-        if (!promo) return json(response, 404, { error: 'Промокод больше недоступен' });
+        if (!promo) return json(response, 404, { error: 'This promo code is no longer available.' });
         const result = await mutateState(state => {
-          const visitor = state.visitors[id]; if (!visitor) return { status: 401, body: { error: 'Обновите страницу' } };
+          const visitor = state.visitors[id]; if (!visitor) return { status: 401, body: { error: 'Refresh the page and try again.' } };
           const subscribed = activeSubscription(visitor); const expired = Date.now() > new Date(visitor.startedAt).getTime() + SESSION_SECONDS * 1000;
-          if (!subscribed && (visitor.freeClaimed || expired)) return { status: 402, body: { error: expired ? 'Бесплатная сессия завершена' : 'Бесплатный код уже выбран', subscribe: true } };
+          if (!subscribed && (visitor.freeClaimed || expired)) return { status: 402, body: { error: expired ? 'The free session has ended.' : 'Your free promo code has already been selected.', subscribe: true } };
           if (!subscribed) { visitor.freeClaimed = true; visitor.freePromoId = promo.id; visitor.freeClaimedAt = new Date().toISOString(); }
           return { status: 200, body: { promo: { ...publicPromo(promo), code: promo.code }, subscribed } };
         });
         return json(response, result.status, result.body);
       }
       if (request.method === 'POST' && url.pathname === '/api/checkout') {
-        const id = visitorId(request, config.sessionSecret); if (!id) return json(response, 401, { error: 'Обновите страницу' });
+        const id = visitorId(request, config.sessionSecret); if (!id) return json(response, 401, { error: 'Refresh the page and try again.' });
         const input = await body(request); const email = String(input.email || '').trim();
-        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json(response, 400, { error: 'Введите корректную почту для чека' });
-        if (!input.consent) return json(response, 400, { error: 'Нужно подтвердить условия автопродления' });
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json(response, 400, { error: 'Enter a valid email address for your receipt.' });
+        if (!input.consent) return json(response, 400, { error: 'Confirm the recurring billing terms to continue.' });
         if (config.paymentMode === 'demo') {
           await mutateState(state => { state.visitors[id].subscription = { status: 'active', autoRenew: true, demo: true, email, startedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 30 * 864e5).toISOString() }; });
           return json(response, 200, { demo: true, activated: true });
@@ -370,7 +383,7 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
         return json(response, 200, { confirmationUrl });
       }
       if (request.method === 'POST' && url.pathname === '/api/payment/verify') {
-        const id = visitorId(request, config.sessionSecret); if (!id) return json(response, 401, { error: 'Обновите страницу' });
+        const id = visitorId(request, config.sessionSecret); if (!id) return json(response, 401, { error: 'Refresh the page and try again.' });
         const state = await loadState(); const paymentId = state.visitors[id]?.pendingPaymentId;
         if (config.paymentMode === 'cloudpayments') return json(response, 200, { activated: activeSubscription(state.visitors[id] || {}), pending: Boolean(paymentId) });
         if (!paymentId) return json(response, 200, { activated: activeSubscription(state.visitors[id] || {}) });
@@ -378,12 +391,12 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
         return json(response, 200, { activated, pending: !activated });
       }
       if (request.method === 'POST' && url.pathname === '/api/subscription/cancel') {
-        const id = visitorId(request, config.sessionSecret); if (!id) return json(response, 401, { error: 'Обновите страницу' });
+        const id = visitorId(request, config.sessionSecret); if (!id) return json(response, 401, { error: 'Refresh the page and try again.' });
         const current = await loadState(); const sub = current.visitors[id]?.subscription;
         if (config.paymentMode === 'lava' && sub?.provider === 'lava') return json(response, 200, { canceled: false, manageUrl: 'https://app.lava.top/my-purchases', message: 'Manage and cancel the subscription securely in your lava.top account.' });
         if (config.paymentMode === 'cloudpayments' && sub?.subscriptionId) await cloudRequest(config, '/subscriptions/cancel', { Id: sub.subscriptionId });
         await mutateState(state => { const saved = state.visitors[id]?.subscription; if (saved) { saved.autoRenew = false; saved.canceledAt = new Date().toISOString(); } });
-        return json(response, 200, { canceled: true, message: 'Автопродление отключено. Доступ сохранится до конца оплаченного периода.' });
+        return json(response, 200, { canceled: true, message: 'Auto-renewal is off. Access remains available through the paid period.' });
       }
       if (request.method === 'GET' && url.pathname === '/api/products') return json(response, 200, { products: await loadProducts() });
       if (request.method === 'POST' && url.pathname.startsWith('/api/webhooks/cloudpayments/')) {
@@ -415,11 +428,11 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
         if (event.event === 'payment.canceled' && paymentId) await recordCanceledPayment(config, paymentId);
         return json(response, 200, { ok: true });
       }
-      if (request.method !== 'GET' && request.method !== 'HEAD') return json(response, 405, { error: 'Метод не поддерживается' });
+      if (request.method !== 'GET' && request.method !== 'HEAD') return json(response, 405, { error: 'Method not allowed.' });
       return serveStatic(request, response);
     } catch (error) {
-      if (error instanceof SyntaxError) return json(response, 400, { error: 'Некорректный JSON' });
-      console.error(error); return json(response, 500, { error: 'Внутренняя ошибка' });
+      if (error instanceof SyntaxError) return json(response, 400, { error: 'Invalid JSON.' });
+      console.error(error); return json(response, 500, { error: 'Internal server error.' });
     }
   });
   await new Promise((ok, fail) => { server.once('error', fail); server.listen(port ?? config.port, host, ok); });

@@ -22,7 +22,11 @@ function loadEnv(text) {
 
 export function normalizeCoupons(payload, now = new Date()) {
   const items = Array.isArray(payload) ? payload : payload.results || [];
-  return items.filter(item => item.status === 'active' && item.promocode && (!item.date_end || new Date(item.date_end) > now)).map(item => ({
+  return items.filter(item => {
+    const terms=String(item.description||'');
+    const excludesUS=/not available[^\r\n]*\bUS\b/i.test(terms);
+    return item.status === 'active' && item.promocode && !excludesUS && (!item.date_end || new Date(item.date_end) > now);
+  }).map(item => ({
     id: `admitad-${item.id}`,
     merchant: item.campaign?.name || 'Store',
     title: item.name || item.short_name || 'Promo code',
@@ -107,7 +111,8 @@ async function selfTest() {
   const rows = normalizeCoupons({ results: [
     { id: 1, status: 'active', promocode: 'LIVE10', date_end: '2099-01-01T00:00:00Z', name: 'Скидка', campaign: { name: 'Магазин' }, categories: [{ name: 'Дом' }], goto_link: 'http://example.com', image: '//cdn.example.com/product.jpg' },
     { id: 2, status: 'expired', promocode: 'OLD', date_end: '2020-01-01T00:00:00Z' },
-    { id: 3, status: 'active', date_end: '2099-01-01T00:00:00Z' }
+    { id: 3, status: 'active', date_end: '2099-01-01T00:00:00Z' },
+    { id: 4, status: 'active', promocode: 'NOUS', date_end: '2099-01-01T00:00:00Z', description: '*Not available: RU, US, CA' }
   ]}, new Date('2026-09-03T00:00:00Z'));
   if (rows.length !== 1 || rows[0].code !== 'LIVE10' || rows[0].demo || rows[0].affiliateUrl !== 'https://example.com' || rows[0].imageUrl !== 'https://cdn.example.com/product.jpg') throw new Error('Нормализация купонов не прошла тест');
   const calls = [];
