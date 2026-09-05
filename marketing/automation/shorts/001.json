@@ -2,12 +2,13 @@
   "slug": "three-subscriptions-wasting-money",
   "title": "3 subscriptions quietly wasting your money",
   "caption": "Check before you renew. OneCode finds verified promo codes and product deals. #savemoney #deals #subscriptions",
+  "audio": "001-voice.wav",
   "scenes": [
-    { "duration": 2.4, "size": 94, "text": "3 SUBSCRIPTIONS\nQUIETLY WASTING\nYOUR MONEY" },
-    { "duration": 3.2, "size": 78, "text": "#3\nA CLOUD PLAN\nYOU NEVER USE" },
-    { "duration": 3.2, "size": 78, "text": "#2\nANNUAL DELIVERY\nAFTER THE TRIAL" },
-    { "duration": 3.2, "size": 78, "text": "#1\nMULTIPLE STREAMING\nPLANS AT ONCE" },
-    { "duration": 3.4, "size": 75, "text": "CHECK YOUR RENEWALS\nTHEN FIND A BETTER DEAL" },
-    { "duration": 3.0, "size": 86, "text": "ONECODE\nPICK 1 CODE FREE\nodinkod.onrender.com" }
+    { "duration": 2.8, "size": 94, "image": "../assets/subscription-1.png", "text": "STOP PAYING\nTHESE 3\nSUBSCRIPTIONS" },
+    { "duration": 4.2, "size": 78, "image": "../assets/subscription-2.png", "text": "#3\nCLOUD STORAGE\nYOU DON'T USE" },
+    { "duration": 4.2, "size": 78, "image": "../assets/subscription-3.png", "text": "#2\nDELIVERY MEMBERSHIP\nAFTER THE TRIAL" },
+    { "duration": 4.2, "size": 78, "image": "../assets/subscription-4.png", "text": "#1\nSTREAMING\nOVERLAP" },
+    { "duration": 5.0, "size": 75, "image": "../assets/subscription-5.png", "text": "OPEN YOUR STATEMENT\nCANCEL ONE\nFORGOTTEN CHARGE" },
+    { "duration": 5.0, "size": 82, "image": "../assets/subscription-6.png", "text": "ONECODE\nPICK 1 CODE FREE\nodinkod.onrender.com" }
   ]
 }
