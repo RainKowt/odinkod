@@ -333,12 +333,12 @@ async function recordCanceledPayment(config, paymentId) {
 async function serveStatic(request, response) {
   const url = new URL(request.url, 'http://localhost');
   const name = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\/+/, '');
-  const allowed=['index.html','legal.html','robots.txt','sitemap.xml'];
+  const allowed=['index.html','legal.html','robots.txt','sitemap.xml','favicon.svg','social-card.png'];
   if (!allowed.includes(name)) return response.writeHead(404).end('Not found');
   const path = resolve(PUBLIC, name);
   if (!path.startsWith(PUBLIC + sep)) return response.writeHead(404).end('Not found');
   const info = await stat(path);
-  const types={'.html':'text/html; charset=utf-8','.txt':'text/plain; charset=utf-8','.xml':'application/xml; charset=utf-8'};
+  const types={'.html':'text/html; charset=utf-8','.txt':'text/plain; charset=utf-8','.xml':'application/xml; charset=utf-8','.svg':'image/svg+xml','.png':'image/png'};
   response.writeHead(200, { 'content-type': types[extname(path)]||'application/octet-stream', 'content-length': info.size, 'x-content-type-options': 'nosniff' });
   createReadStream(path).pipe(response);
 }
