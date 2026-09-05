@@ -1,4 +1,5 @@
 .env
 data/state.json
 data/promos.live.json
+marketing/automation/references/
 

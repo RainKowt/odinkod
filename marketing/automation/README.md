@@ -10,3 +10,5 @@ node marketing\automation\render-short.mjs marketing\automation\shorts\001.json
 ```
 
 Output is written to `marketing/automation/output`. Each JSON manifest holds the title, caption, and timed scenes. Publishing stays behind an explicit review step until each platform account and official API application are approved.
+
+For real-footage edits matching the supplied references, use `render-source-short.mjs` with a manifest based on `shorts/source-example.json`. The renderer creates the blurred vertical background, centered source frame, large outlined captions, and OneCode watermark. It also requires source and usage-rights metadata for every clip. See `REAL_FOOTAGE_FORMAT.md`.

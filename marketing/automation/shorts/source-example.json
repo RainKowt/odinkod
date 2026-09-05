@@ -1,0 +1,14 @@
+{
+  "slug": "onecode-real-footage-example",
+  "audio": "../voice.wav",
+  "scenes": [
+    {
+      "file": "../sources/clip-01.mp4",
+      "start": 0,
+      "duration": 2.4,
+      "caption": "YOU'RE PAYING TOO MUCH",
+      "source": "https://source.example/video",
+      "rights": "Licensed by the creator for OneCode"
+    }
+  ]
+}
