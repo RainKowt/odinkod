@@ -9,7 +9,7 @@ Admitad website 2991802 lists 10 connected programs: AliExpress RU&CIS, AliExpre
 
 Public /api/catalog returns 51 offers: Alibaba 2, AliExpress 11, Geekbuying 23, Hide Expert 1, Redmagic 3, Retouch4me 1, Vevor 10. Listing is not a checkout validation. Hacoo and hidemy.name have no offers in this response; RU&CIS is not the target market.
 
-eBay sign-in still reports account review pending, at least one business day. No API keys obtained.
+eBay previously reported account review pending. A new sign-in attempt on 2026-09-05 returned the generic technical error "Please retry after sometime". No API keys obtained.
 Facebook, Instagram and YouTube Studio failed to resolve in the available browser. No posts have been published to those three channels and no account ownership has been established there.
 
 ## Publication log
@@ -17,6 +17,7 @@ Facebook, Instagram and YouTube Studio failed to resolve in the available browse
 | Date | Channel | Asset | Destination | Status |
 |---|---|---|---|---|
 | 2026-09-05 | Pinterest | [3 Things to Check Before Using a Promo Code \| OneCode](https://www.pinterest.com/pin/1060738518507913704/) | OneCode launch URL with Pinterest UTM tags | Published and publicly verified; AI disclosure visible |
+| 2026-09-05 | Pinterest | [Minimum Spend? Check the Final Price](https://www.pinterest.com/pin/1060738518507914146/) | Imported image source; OneCode URL is shown in the creative | Published and publicly verified; AI disclosure visible. Replace the click destination with OneCode before treating this as a traffic asset |
 
 ## Brand copy
 
