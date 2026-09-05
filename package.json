@@ -7,7 +7,8 @@
     "start": "node app-fixed.mjs",
     "test": "node app-fixed.mjs --self-test && node admitad-sync.mjs --self-test && node promo-sync.mjs --self-test && node product-sync.mjs --self-test && node billing.mjs --self-test",
     "sync:promos": "node promo-sync.mjs",
-    "bill": "node billing.mjs"
+    "bill": "node billing.mjs",
+    "render:short": "node marketing/automation/render-short.mjs"
   },
   "engines": { "node": ">=20" }
 }
