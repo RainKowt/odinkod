@@ -112,7 +112,7 @@ async function body(request, limit = 20_000) {
 async function loadProducts() {
   try {
     const products=JSON.parse(await readFile(LIVE_PRODUCTS, 'utf8'));
-    return products.filter(item=>item.inStock!==false).map(item=>{
+    return products.filter(item=>item.inStock!==false&&!/(?:minimum|moq|min\. order).{0,30}(?:\d{2,}|pieces?|pcs?|units?)/i.test(`${item.title||''} ${item.terms||''}`)).map(item=>{
       const link=String(item.affiliateUrl||'').toLowerCase();
       const merchant=link.includes('alibaba.com')?'Alibaba':link.includes('aliexpress.com')?'AliExpress':item.merchant;
       return {...item,merchant,inStock:item.inStock??null};

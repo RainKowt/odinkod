@@ -18,6 +18,8 @@ function inferredMerchant(merchant, affiliateUrl='') {
   if(value.includes('aliexpress.com'))return 'AliExpress';
   return merchant;
 }
+function retailCategory(value='',title='') { const text=(value+' '+title).toLowerCase();if(/dress|shirt|hoodie|jacket|jeans|shoe|sneaker|fashion|apparel|clothing/.test(text))return 'Clothing & Fashion';if(/beauty|cosmetic|skin|hair/.test(text))return 'Beauty';if(/home|furniture|kitchen|decor/.test(text))return 'Home & Living';if(/sport|fitness|outdoor/.test(text))return 'Sports & Outdoors';return value||'Other Products'; }
+function wholesaleOnly(text=''){return /(?:minimum|minimum order|moq|min\. order).{0,30}(?:\d{2,}|pieces?|pcs?|units?)|(?:\d{2,})\s*(?:pieces?|pcs?|units?)\s*(?:minimum|min\.?|or more)/i.test(text)}
 
 export function parseProducts(xml, merchant='Store', limit=120) {
   const blocks=[...(xml.match(/<offer\b[\s\S]*?<\/offer>/gi)||[]),...(xml.match(/<item\b[\s\S]*?<\/item>/gi)||[]),...(xml.match(/<entry\b[\s\S]*?<\/entry>/gi)||[])];
@@ -26,10 +28,10 @@ export function parseProducts(xml, merchant='Store', limit=120) {
     const availability=field(block,['availability','available']).toLowerCase();
     if(availability&&/out of stock|sold out|unavailable|discontinued|false|no/.test(availability))continue;
     const id=attr(block,'id')||field(block,['id','offer_id']); const title=field(block,['name','title','model']); const imageUrl=https(field(block,['picture','image_link','image','photo'])); const affiliateUrl=https(field(block,['url','link'])); const regularPrice=money(field(block,['price'])); const salePrice=money(field(block,['sale_price'])); const price=salePrice||regularPrice; const oldPrice=salePrice&&regularPrice>salePrice?regularPrice:money(field(block,['oldprice','old_price']));
-    if(!id||!title||!imageUrl||!affiliateUrl||!price||seen.has(id))continue; seen.add(id);
+    const terms=field(block,['description','sales_notes']);if(!id||!title||!imageUrl||!affiliateUrl||!price||seen.has(id)||wholesaleOnly(title+' '+terms))continue; seen.add(id);
     const discount=oldPrice>price?Math.round((1-price/oldPrice)*100):null;
     const inStock=availability?/in stock|available|true|yes|instock/.test(availability):null;
-    products.push({id:`product-${id}`,merchant:inferredMerchant(merchant,affiliateUrl),title,category:field(block,['categoryId','product_type'])||'Products',imageUrl,affiliateUrl,price,oldPrice:oldPrice||null,currency:field(block,['currencyId'])||'USD',discount:discount?`${discount}% off`:null,terms:field(block,['description','sales_notes']),availability:availability||null,inStock,sourceName:'Admitad product feed'});
+    products.push({id:`product-${id}`,merchant:inferredMerchant(merchant,affiliateUrl),title,category:retailCategory(field(block,['categoryId','product_type']),title),imageUrl,affiliateUrl,price,oldPrice:oldPrice||null,currency:field(block,['currencyId'])||'USD',discount:discount?`${discount}% off`:null,terms,availability:availability||null,inStock,sourceName:'Admitad product feed'});
     if(products.length>=limit)break;
   }
   return products;
