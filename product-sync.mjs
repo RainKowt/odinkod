@@ -19,7 +19,9 @@ function inferredMerchant(merchant, affiliateUrl='') {
   return merchant;
 }
 function retailCategory(value='',title='') { const text=(value+' '+title).toLowerCase();if(/dress|shirt|hoodie|jacket|jeans|shoe|sneaker|fashion|apparel|clothing/.test(text))return 'Clothing & Fashion';if(/beauty|cosmetic|skin|hair/.test(text))return 'Beauty';if(/home|furniture|kitchen|decor/.test(text))return 'Home & Living';if(/sport|fitness|outdoor/.test(text))return 'Sports & Outdoors';return value||'Other Products'; }
-function wholesaleOnly(text=''){return /(?:minimum|minimum order|moq|min\. order).{0,30}(?:\d{2,}|pieces?|pcs?|units?)|(?:\d{2,})\s*(?:pieces?|pcs?|units?)\s*(?:minimum|min\.?|or more)/i.test(text)}
+function wholesaleOnly(text=''){
+  return /\b(?:wholesale|factory direct|supplier|private label|custom packaging|oem|odm)\b|(?:minimum|minimum order|moq|min\. order).{0,40}(?:\d{2,}|pieces?|pcs?|units?)|(?:\d{2,})\s*(?:pieces?|pcs?|units?)\s*(?:minimum|min\.?|or more)/i.test(text)
+}
 
 export function parseProducts(xml, merchant='Store', limit=120) {
   const blocks=[...(xml.match(/<offer\b[\s\S]*?<\/offer>/gi)||[]),...(xml.match(/<item\b[\s\S]*?<\/item>/gi)||[]),...(xml.match(/<entry\b[\s\S]*?<\/entry>/gi)||[])];
