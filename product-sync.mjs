@@ -20,8 +20,9 @@ function inferredMerchant(merchant, affiliateUrl='') {
 }
 function retailCategory(value='',title='') { const text=(value+' '+title).toLowerCase();if(/dress|shirt|hoodie|jacket|jeans|shoe|sneaker|fashion|apparel|clothing/.test(text))return 'Clothing & Fashion';if(/beauty|cosmetic|skin|hair/.test(text))return 'Beauty';if(/home|furniture|kitchen|decor/.test(text))return 'Home & Living';if(/sport|fitness|outdoor/.test(text))return 'Sports & Outdoors';return value||'Other Products'; }
 function wholesaleOnly(text=''){
-  return /\b(?:wholesale|factory(?:\s+direct)?|supplier|manufacturer|private label|custom(?:ized|izable|ization)?|oem|odm|low moq|sample order|dropshipping supplier|foreign trade|export quality|trade assurance)\b|(?:minimum|minimum order|moq|min\. order).{0,40}(?:\d+|pieces?|pcs?|units?|sets?|pairs?)|(?:\d{2,})\s*(?:pieces?|pcs?|units?|sets?|pairs?|packs?)\b|\b(?:pack|set|lot)\s+of\s+\d{2,}\b/i.test(text)
+  return /\b(?:wholesale|factory(?:\s+direct)?|supplier|manufacturer|vendor|private label|custom(?:ized|izable|ization)?|oem|odm|low moq|sample order|dropshipping supplier|foreign trade|export quality|trade assurance)|(?:minimum|minimum order|moq|min\. order).{0,40}(?:\d+|pieces?|pcs?|units?|sets?|pairs?)|(?:\d{2,})\s*(?:pieces?|pcs?|units?|sets?|pairs?|packs?)\b|\b(?:pack|set|lot)\s+of\s+\d{2,}\b/i.test(text)
 }
+function unsafeProduct(text=''){ return /\b(?:injectable|dermal filler|mesotherapy|cryolipolysis|fat freezing|hymen|vaginal tightening|skin tag removal|mole removal|weight loss (?:cream|gel)|fat burning (?:cream|gel))\b/i.test(text); }
 
 export function parseProducts(xml, merchant='Store', limit=120) {
   const blocks=[...(xml.match(/<offer\b[\s\S]*?<\/offer>/gi)||[]),...(xml.match(/<item\b[\s\S]*?<\/item>/gi)||[]),...(xml.match(/<entry\b[\s\S]*?<\/entry>/gi)||[])];
@@ -30,7 +31,7 @@ export function parseProducts(xml, merchant='Store', limit=120) {
     const availability=field(block,['availability','available']).toLowerCase();
     if(availability&&/out of stock|sold out|unavailable|discontinued|false|no/.test(availability))continue;
     const id=attr(block,'id')||field(block,['id','offer_id']); const title=field(block,['name','title','model']); const imageUrl=https(field(block,['picture','image_link','image','photo'])); const affiliateUrl=https(field(block,['url','link'])); const regularPrice=money(field(block,['price'])); const salePrice=money(field(block,['sale_price'])); const price=salePrice||regularPrice; const oldPrice=salePrice&&regularPrice>salePrice?regularPrice:money(field(block,['oldprice','old_price']));
-    const terms=field(block,['description','sales_notes']);if(!id||!title||!imageUrl||!affiliateUrl||!price||seen.has(id)||wholesaleOnly(title+' '+terms))continue; seen.add(id);
+    const terms=field(block,['description','sales_notes']);if(!id||!title||!imageUrl||!affiliateUrl||!price||seen.has(id)||wholesaleOnly(title+' '+terms)||unsafeProduct(title+' '+terms))continue; seen.add(id);
     const discount=oldPrice>price?Math.round((1-price/oldPrice)*100):null;
     const inStock=availability?/in stock|available|true|yes|instock/.test(availability):null;
     products.push({id:`product-${id}`,merchant:inferredMerchant(merchant,affiliateUrl),title,category:retailCategory(field(block,['categoryId','product_type']),title),imageUrl,affiliateUrl,price,oldPrice:oldPrice||null,currency:field(block,['currencyId'])||'USD',discount:discount?`${discount}% off`:null,terms,availability:availability||null,inStock,sourceName:'Admitad product feed'});
