@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { createReadStream } from 'node:fs';
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -445,9 +446,13 @@ async function startBackgroundJobs(config) {
     try { const { syncAllPromos } = await import('./promo-sync.mjs'); await syncAllPromos(); }
     catch (error) { console.error('Автообновление промокодов:', error.message); }
   };
-  const runProductSync = async () => {
-    try { const { syncProducts } = await import('./product-sync.mjs'); await syncProducts(); }
-    catch (error) { console.error('Автообновление товаров:', error.message); }
+  let productSyncRunning=false;
+  const runProductSync = () => {
+    if(productSyncRunning)return;
+    productSyncRunning=true;
+    const child=spawn(process.execPath,[resolve(ROOT,'product-sync.mjs')],{cwd:ROOT,env:process.env,stdio:'inherit'});
+    child.once('error',error=>{productSyncRunning=false;console.error('Автообновление товаров:',error.message)});
+    child.once('exit',code=>{productSyncRunning=false;if(code)console.error(`Автообновление товаров завершилось с кодом ${code}`)});
   };
   const runRenewals = async () => {
     try { const { runBilling } = await import('./billing.mjs'); const result = await runBilling({ config }); if (result.length) console.log('Автопродления:', result); }
