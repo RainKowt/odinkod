@@ -46,19 +46,19 @@ export async function syncProducts(){
   try{loadEnv(await readFile(new URL('.env',ROOT),'utf8'))}catch{}
   const clientId=process.env.ADMITAD_CLIENT_ID, clientSecret=process.env.ADMITAD_CLIENT_SECRET, website=process.env.ADMITAD_WEBSITE_ID;
   const manualFeeds=(process.env.ADMITAD_PRODUCT_FEED_URLS||process.env.ADMITAD_PRODUCT_FEED_URL||'').split(/[\r\n,]+/).map(value=>value.trim()).filter(Boolean);
+  const groups=[];
   if(manualFeeds.length){
-    const groups=[]; for(const feed of manualFeeds){try{groups.push(parseProducts(await limitedText(feed),'AliExpress',500))}catch(error){console.warn(`Manual product feed: ${error.message}`)}}
-    const products=groups.flat().filter((item,index,all)=>all.findIndex(other=>other.id===item.id)===index).slice(0,3000);
-    if(!products.length)throw new Error('The configured Admitad product feed returned no products');
-    const target=new URL('data/products.live.json',ROOT),temp=new URL('data/products.live.tmp.json',ROOT); await writeFile(temp,JSON.stringify(products,null,2));await rename(temp,target);console.log(`Товарный каталог обновлён: ${products.length} позиций.`);return products;
+    for(const feed of manualFeeds){try{groups.push(parseProducts(await limitedText(feed),'AliExpress',3000))}catch(error){console.warn(`Manual product feed: ${error.message}`)}}
   }
-  if(!clientId||!clientSecret||!website)throw new Error('Admitad product feeds are not configured');
-  const token=await fetchAdmitadToken({clientId,clientSecret,scope:'advcampaigns_for_website'});
-  const url=new URL(`https://api.admitad.com/advcampaigns/website/${website}/`); url.searchParams.set('connection_status','active');url.searchParams.set('has_tool','products');url.searchParams.set('limit','100');url.searchParams.set('language','en');
-  const response=await fetch(url,{headers:{authorization:`Bearer ${token}`},signal:AbortSignal.timeout(20000)}); if(!response.ok)throw new Error(`Admitad programs: ${response.status} ${await response.text()}`);
-  const programs=(await response.json()).results||[]; const groups=[];
-  for(const program of programs){ const links=[...(program.feeds_info||[]).map(f=>f.xml_link),program.products_xml_link].filter(Boolean); for(const link of links.slice(0,2)){try{groups.push(parseProducts(await limitedText(link),program.name,80))}catch(error){console.warn(`${program.name}: ${error.message}`)}} }
-  const products=groups.flat().slice(0,300); if(!products.length)throw new Error('Connected programs returned no product feeds');
+  if(clientId&&clientSecret&&website){
+    const token=await fetchAdmitadToken({clientId,clientSecret,scope:'advcampaigns_for_website'});
+    const url=new URL(`https://api.admitad.com/advcampaigns/website/${website}/`); url.searchParams.set('connection_status','active');url.searchParams.set('has_tool','products');url.searchParams.set('limit','100');url.searchParams.set('language','en');
+    const response=await fetch(url,{headers:{authorization:`Bearer ${token}`},signal:AbortSignal.timeout(20000)}); if(!response.ok)throw new Error(`Admitad programs: ${response.status} ${await response.text()}`);
+    const programs=(await response.json()).results||[];
+    for(const program of programs){ const links=[...(program.feeds_info||[]).map(f=>f.xml_link),program.products_xml_link].filter(Boolean); for(const link of links.slice(0,2)){try{groups.push(parseProducts(await limitedText(link),program.name,300))}catch(error){console.warn(`${program.name}: ${error.message}`)}} }
+  }
+  const products=groups.flat().filter((item,index,all)=>all.findIndex(other=>other.id===item.id)===index).slice(0,3000);
+  if(!products.length)throw new Error('No configured product feed returned usable products');
   const target=new URL('data/products.live.json',ROOT),temp=new URL('data/products.live.tmp.json',ROOT); await writeFile(temp,JSON.stringify(products,null,2));await rename(temp,target);console.log(`Товарный каталог обновлён: ${products.length} позиций.`);return products;
 }
 
