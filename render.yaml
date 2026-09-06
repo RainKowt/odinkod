@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     buildCommand: ""
-    startCommand: node app.mjs
+    startCommand: node app-fixed.mjs
     healthCheckPath: /health
     autoDeploy: true
     envVars:
@@ -12,11 +12,11 @@ services:
         value: 22
       - key: HOST
         value: 0.0.0.0
-      - key: PAYMENT_MODE
-        value: demo
       - key: SUBSCRIPTION_PRICE_USD
         value: 5
       - key: AUTO_JOBS
-        value: false
+        value: true
+      - key: PROMO_SYNC_MINUTES
+        value: 60
       - key: SESSION_SECRET
         generateValue: true
