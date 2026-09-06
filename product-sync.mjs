@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { fetchAdmitadToken } from './admitad-sync.mjs';
 
 const ROOT = new URL('.', import.meta.url);
-const MAX_FEED_BYTES = 32_000_000;
+const MAX_FEED_BYTES = 8_000_000;
 
 function loadEnv(text) { for (const raw of text.split(/\r?\n/)) { const line=raw.trim(); const i=line.indexOf('='); if(line&&!line.startsWith('#')&&i>0&&!(line.slice(0,i) in process.env)) process.env[line.slice(0,i)]=line.slice(i+1).trim(); } }
 function decode(value='') { return value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,'$1').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').trim(); }
@@ -58,9 +58,8 @@ export async function syncProducts(){
     const url=new URL(`https://api.admitad.com/advcampaigns/website/${website}/`); url.searchParams.set('connection_status','active');url.searchParams.set('has_tool','products');url.searchParams.set('limit','100');url.searchParams.set('language','en');
     const response=await fetch(url,{headers:{authorization:`Bearer ${token}`},signal:AbortSignal.timeout(20000)}); if(!response.ok)throw new Error(`Admitad programs: ${response.status} ${await response.text()}`);
     const programs=(await response.json()).results||[];
-    const feeds=programs.flatMap(program=>[...(program.feeds_info||[]).map(f=>f.xml_link),program.products_xml_link].filter(Boolean).slice(0,2).map(link=>({link,program:program.name})));
-    const results=await Promise.allSettled(feeds.map(async feed=>parseProducts(await limitedText(feed.link),feed.program,300)));
-    results.forEach((result,index)=>{if(result.status==='fulfilled')groups.push(result.value);else console.warn(`${feeds[index].program}: ${result.reason.message}`)});
+    const feeds=programs.flatMap(program=>[...(program.feeds_info||[]).map(f=>f.xml_link),program.products_xml_link].filter(Boolean).slice(0,1).map(link=>({link,program:program.name})));
+    for(const feed of feeds){try{groups.push(parseProducts(await limitedText(feed.link),feed.program,200))}catch(error){console.warn(`${feed.program}: ${error.message}`)}}
   }
   const products=groups.flat().filter((item,index,all)=>all.findIndex(other=>other.id===item.id)===index).slice(0,3000);
   if(!products.length)throw new Error('No configured product feed returned usable products');
