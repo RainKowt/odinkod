@@ -112,7 +112,7 @@ async function body(request, limit = 20_000) {
 async function loadProducts() {
   try {
     const products=JSON.parse(await readFile(LIVE_PRODUCTS, 'utf8'));
-    return products.filter(item=>item.inStock!==false&&!/\b(?:wholesale|factory direct|supplier|private label|custom packaging|oem|odm)\b|(?:minimum|minimum order|moq|min\. order).{0,40}(?:\d{2,}|pieces?|pcs?|units?)|(?:\d{2,})\s*(?:pieces?|pcs?|units?)\s*(?:minimum|min\.?|or more)/i.test(`${item.title||''} ${item.terms||''}`)).map(item=>{
+    return products.filter(item=>item.inStock!==false&&!/\b(?:wholesale|factory(?:\s+direct)?|supplier|manufacturer|private label|custom(?:ized|izable|ization)?|oem|odm|low moq|sample order|dropshipping supplier|foreign trade|export quality|trade assurance)\b|(?:minimum|minimum order|moq|min\. order).{0,40}(?:\d+|pieces?|pcs?|units?|sets?|pairs?)|(?:\d{2,})\s*(?:pieces?|pcs?|units?|sets?|pairs?|packs?)\b|\b(?:pack|set|lot)\s+of\s+\d{2,}\b/i.test(`${item.title||''} ${item.terms||''}`)).map(item=>{
       const link=String(item.affiliateUrl||'').toLowerCase();
       const merchant=link.includes('alibaba.com')?'Alibaba':link.includes('aliexpress.com')?'AliExpress':item.merchant;
       return {...item,merchant,inStock:item.inStock??null};
