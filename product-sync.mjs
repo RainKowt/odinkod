@@ -41,6 +41,7 @@ export function parseProducts(xml, merchant='Store', limit=120) {
 }
 
 async function limitedText(rawUrl){ const url=String(rawUrl).replace(/&amp;/g,'&').replace(/^http:/i,'https:'); const r=await fetch(url,{headers:{accept:'application/xml,text/xml;q=0.9,*/*;q=0.5','user-agent':'Mozilla/5.0 OneCode product catalog'},signal:AbortSignal.timeout(30000)}); if(!r.ok)throw new Error(`Product feed HTTP ${r.status}`); const reader=r.body.getReader(); let size=0,text=''; const decoder=new TextDecoder(); while(true){const {done,value}=await reader.read(); if(done)break; size+=value.length; text+=decoder.decode(value,{stream:true}); if(size>=MAX_FEED_BYTES){await reader.cancel();break;}} return text; }
+async function saveProducts(products){const target=new URL('data/products.live.json',ROOT),temp=new URL('data/products.live.tmp.json',ROOT);await writeFile(temp,JSON.stringify(products,null,2));await rename(temp,target);}
 
 export async function syncProducts(){
   try{loadEnv(await readFile(new URL('.env',ROOT),'utf8'))}catch{}
@@ -48,18 +49,22 @@ export async function syncProducts(){
   const manualFeeds=(process.env.ADMITAD_PRODUCT_FEED_URLS||process.env.ADMITAD_PRODUCT_FEED_URL||'').split(/[\r\n,]+/).map(value=>value.trim()).filter(Boolean);
   const groups=[];
   if(manualFeeds.length){
-    for(const feed of manualFeeds){try{groups.push(parseProducts(await limitedText(feed),'AliExpress',3000))}catch(error){console.warn(`Manual product feed: ${error.message}`)}}
+    for(const feed of manualFeeds){try{groups.push(parseProducts(await limitedText(feed),'AliExpress',2000))}catch(error){console.warn(`Manual product feed: ${error.message}`)}}
+    const initial=groups.flat().filter((item,index,all)=>all.findIndex(other=>other.id===item.id)===index);
+    if(initial.length)await saveProducts(initial);
   }
   if(clientId&&clientSecret&&website){
     const token=await fetchAdmitadToken({clientId,clientSecret,scope:'advcampaigns_for_website'});
     const url=new URL(`https://api.admitad.com/advcampaigns/website/${website}/`); url.searchParams.set('connection_status','active');url.searchParams.set('has_tool','products');url.searchParams.set('limit','100');url.searchParams.set('language','en');
     const response=await fetch(url,{headers:{authorization:`Bearer ${token}`},signal:AbortSignal.timeout(20000)}); if(!response.ok)throw new Error(`Admitad programs: ${response.status} ${await response.text()}`);
     const programs=(await response.json()).results||[];
-    for(const program of programs){ const links=[...(program.feeds_info||[]).map(f=>f.xml_link),program.products_xml_link].filter(Boolean); for(const link of links.slice(0,2)){try{groups.push(parseProducts(await limitedText(link),program.name,300))}catch(error){console.warn(`${program.name}: ${error.message}`)}} }
+    const feeds=programs.flatMap(program=>[...(program.feeds_info||[]).map(f=>f.xml_link),program.products_xml_link].filter(Boolean).slice(0,2).map(link=>({link,program:program.name})));
+    const results=await Promise.allSettled(feeds.map(async feed=>parseProducts(await limitedText(feed.link),feed.program,300)));
+    results.forEach((result,index)=>{if(result.status==='fulfilled')groups.push(result.value);else console.warn(`${feeds[index].program}: ${result.reason.message}`)});
   }
   const products=groups.flat().filter((item,index,all)=>all.findIndex(other=>other.id===item.id)===index).slice(0,3000);
   if(!products.length)throw new Error('No configured product feed returned usable products');
-  const target=new URL('data/products.live.json',ROOT),temp=new URL('data/products.live.tmp.json',ROOT); await writeFile(temp,JSON.stringify(products,null,2));await rename(temp,target);console.log(`Товарный каталог обновлён: ${products.length} позиций.`);return products;
+  await saveProducts(products);console.log(`Товарный каталог обновлён: ${products.length} позиций.`);return products;
 }
 
 function selfTest(){const xml='<shop><offers><offer id="7"><name>Phone</name><available>true</available><price>799</price><oldprice>999</oldprice><currencyId>USD</currencyId><picture>https://img.test/phone.jpg</picture><url>https://www.alibaba.com/product-detail/phone_7.html</url></offer><offer id="8"><name>Gone</name><available>false</available><price>1</price><picture>https://img.test/gone.jpg</picture><url>https://shop.test/gone</url></offer><offer id="9"><name>Custom logo factory hoodie 100 pcs</name><available>true</available><price>4</price><picture>https://img.test/bulk.jpg</picture><url>https://shop.test/bulk</url></offer></offers></shop>';const p=parseProducts(xml,'AliExpress');if(p.length!==1||p[0].discount!=='20% off'||p[0].imageUrl!=='https://img.test/phone.jpg'||p[0].merchant!=='Alibaba'||p[0].inStock!==true)throw new Error('product parser failed');console.log('PRODUCT_SYNC_SELF_TEST_OK')}
