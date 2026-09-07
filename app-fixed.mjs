@@ -6,6 +6,7 @@ import { createServer } from 'node:http';
 import { dirname, extname, resolve, sep } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { safeProduct, retailCategory } from './product-quality.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = resolve(ROOT, 'public');
@@ -113,10 +114,11 @@ async function body(request, limit = 20_000) {
 async function loadProducts() {
   try {
     const products=JSON.parse(await readFile(LIVE_PRODUCTS, 'utf8'));
-    return products.filter(item=>{const text=`${item.title||''} ${item.terms||''}`;return item.inStock!==false&&!/\b(?:wholesale|factory(?:\s+direct)?|supplier|manufacturer|vendor|private label|custom(?:ized|izable|ization)?|oem|odm|low moq|sample order|dropshipping supplier|foreign trade|export quality|trade assurance)|(?:minimum|minimum order|moq|min\. order).{0,40}(?:\d+|pieces?|pcs?|units?|sets?|pairs?)|(?:\d{2,})\s*(?:pieces?|pcs?|units?|sets?|pairs?|packs?)\b|\b(?:pack|set|lot)\s+of\s+\d{2,}\b/i.test(text)&&!/\b(?:injectable|dermal filler|mesotherapy|cryolipolysis|fat freezing|hymen|vaginal tightening|skin tag removal|mole removal|weight loss (?:cream|gel)|fat burning (?:cream|gel))\b/i.test(text)}).map(item=>{
+    return products.filter(safeProduct).map(item=>{
       const link=String(item.affiliateUrl||'').toLowerCase();
       const merchant=link.includes('alibaba.com')?'Alibaba':link.includes('aliexpress.com')?'AliExpress':item.merchant;
-      return {...item,merchant,inStock:item.inStock??null};
+      const price=Number(item.price),oldPrice=Number(item.oldPrice)>price?Number(item.oldPrice):null;
+      return {...item,merchant,price,oldPrice,discount:oldPrice?`${Math.round((1-price/oldPrice)*100)}% off`:null,category:retailCategory('',item.title),inStock:item.inStock??null};
     });
   }
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }
@@ -334,12 +336,12 @@ async function recordCanceledPayment(config, paymentId) {
 async function serveStatic(request, response) {
   const url = new URL(request.url, 'http://localhost');
   const name = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\/+/, '');
-  const allowed=['index.html','legal.html','robots.txt','sitemap.xml','favicon.svg','social-card.png'];
+  const allowed=['index.html','catalog.js','legal.html','robots.txt','sitemap.xml','favicon.svg','social-card.png'];
   if (!allowed.includes(name)) return response.writeHead(404).end('Not found');
   const path = resolve(PUBLIC, name);
   if (!path.startsWith(PUBLIC + sep)) return response.writeHead(404).end('Not found');
   const info = await stat(path);
-  const types={'.html':'text/html; charset=utf-8','.txt':'text/plain; charset=utf-8','.xml':'application/xml; charset=utf-8','.svg':'image/svg+xml','.png':'image/png'};
+  const types={'.js':'text/javascript; charset=utf-8','.html':'text/html; charset=utf-8','.txt':'text/plain; charset=utf-8','.xml':'application/xml; charset=utf-8','.svg':'image/svg+xml','.png':'image/png'};
   response.writeHead(200, { 'content-type': types[extname(path)]||'application/octet-stream', 'content-length': info.size, 'x-content-type-options': 'nosniff' });
   createReadStream(path).pipe(response);
 }

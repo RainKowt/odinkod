@@ -2,6 +2,7 @@ import { readFile, rename, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { fetchAdmitadToken } from './admitad-sync.mjs';
+import { unsuitableProduct, retailCategory, safeProduct } from './product-quality.mjs';
 
 const ROOT = new URL('.', import.meta.url);
 const MAX_FEED_BYTES = 8_000_000;
@@ -11,47 +12,54 @@ function decode(value='') { return value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,'
 function field(block, names) { for(const name of names){ const m=block.match(new RegExp(`<(?:(?:g):)?${name}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:(?:g):)?${name}>`,'i')); if(m)return decode(m[1]); } return ''; }
 function attr(block, name) { const m=block.match(new RegExp(`\\s${name}=["']([^"']+)["']`,'i')); return m?decode(m[1]):''; }
 function https(value){ if(!value)return null; if(value.startsWith('//'))return 'https:'+value; return /^https?:\/\//i.test(value)?value.replace(/^http:/i,'https:'):null; }
-function money(value){ const m=String(value).match(/[\d.,]+/); return m?Number(m[0].replace(',','.')):0; }
+function money(value){ const m=String(value).replace(/\s/g,'').match(/[\d.,]+/);if(!m)return 0;let n=m[0];if(n.includes(',')&&n.includes('.'))n=n.lastIndexOf(',')>n.lastIndexOf('.')?n.replace(/\./g,'').replace(',','.'):n.replace(/,/g,'');else if(/^\d{1,3}(,\d{3})+$/.test(n))n=n.replace(/,/g,'');else n=n.replace(',','.');return Number(n)||0; }
 function inferredMerchant(merchant, affiliateUrl='') {
   const value=String(affiliateUrl).toLowerCase();
   if(value.includes('alibaba.com')||value.includes('offer.alibaba.com'))return 'Alibaba';
   if(value.includes('aliexpress.com'))return 'AliExpress';
   return merchant;
 }
-function retailCategory(value='',title='') { const text=(value+' '+title).toLowerCase();if(/dress|shirt|hoodie|jacket|jeans|shoe|sneaker|fashion|apparel|clothing/.test(text))return 'Clothing & Fashion';if(/beauty|cosmetic|skin|hair/.test(text))return 'Beauty';if(/home|furniture|kitchen|decor/.test(text))return 'Home & Living';if(/sport|fitness|outdoor/.test(text))return 'Sports & Outdoors';return value||'Other Products'; }
-function wholesaleOnly(text=''){
-  return /\b(?:wholesale|factory(?:\s+direct)?|supplier|manufacturer|vendor|private label|custom(?:ized|izable|ization)?|oem|odm|low moq|sample order|dropshipping supplier|foreign trade|export quality|trade assurance)|(?:minimum|minimum order|moq|min\. order).{0,40}(?:\d+|pieces?|pcs?|units?|sets?|pairs?)|(?:\d{2,})\s*(?:pieces?|pcs?|units?|sets?|pairs?|packs?)\b|\b(?:pack|set|lot)\s+of\s+\d{2,}\b/i.test(text)
-}
-function unsafeProduct(text=''){ return /\b(?:injectable|dermal filler|mesotherapy|cryolipolysis|fat freezing|hymen|vaginal tightening|skin tag removal|mole removal|weight loss (?:cream|gel)|fat burning (?:cream|gel))\b/i.test(text); }
 
 export function parseProducts(xml, merchant='Store', limit=120) {
   const blocks=[...(xml.match(/<offer\b[\s\S]*?<\/offer>/gi)||[]),...(xml.match(/<item\b[\s\S]*?<\/item>/gi)||[]),...(xml.match(/<entry\b[\s\S]*?<\/entry>/gi)||[])];
   const seen=new Set(); const products=[];
   for(const block of blocks){
-    const availability=field(block,['availability','available']).toLowerCase();
-    if(availability&&/out of stock|sold out|unavailable|discontinued|false|no/.test(availability))continue;
+    const availability=(field(block,['availability','available'])||attr(block,'available')).toLowerCase().trim();
+    if(/out[ _]of[ _]stock|sold out|unavailable|discontinued|^(?:false|no|0)$|pre.?order|backorder/.test(availability))continue;
+    const minimum=money(field(block,['minimum_order_quantity','min_order_quantity','min_quantity','minimum_order','min_order','moq']));
+    if(minimum>1)continue;
     const id=attr(block,'id')||field(block,['id','offer_id']); const title=field(block,['name','title','model']); const imageUrl=https(field(block,['picture','image_link','image','photo'])); const affiliateUrl=https(field(block,['url','link'])); const regularPrice=money(field(block,['price'])); const salePrice=money(field(block,['sale_price'])); const price=salePrice||regularPrice; const oldPrice=salePrice&&regularPrice>salePrice?regularPrice:money(field(block,['oldprice','old_price']));
-    const terms=field(block,['description','sales_notes']);if(!id||!title||!imageUrl||!affiliateUrl||!price||seen.has(id)||wholesaleOnly(title+' '+terms)||unsafeProduct(title+' '+terms))continue; seen.add(id);
+    const terms=field(block,['description','sales_notes']).replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();if(!id||!title||!imageUrl||!affiliateUrl||!price||seen.has(id)||unsuitableProduct(title+' '+terms))continue; seen.add(id);
     const discount=oldPrice>price?Math.round((1-price/oldPrice)*100):null;
-    const inStock=availability?/in stock|available|true|yes|instock/.test(availability):null;
-    products.push({id:`product-${id}`,merchant:inferredMerchant(merchant,affiliateUrl),title,category:retailCategory(field(block,['categoryId','product_type']),title),imageUrl,affiliateUrl,price,oldPrice:oldPrice||null,currency:field(block,['currencyId'])||'USD',discount:discount?`${discount}% off`:null,terms,availability:availability||null,inStock,sourceName:'Admitad product feed'});
+    const inStock=/^(?:in[ _]?stock|available|true|yes|1)$/.test(availability)?true:null;
+    const currency=(field(block,['currencyId','currency'])||(field(block,['sale_price','price']).match(/\b[A-Z]{3}\b/)||[])[0]||'USD').toUpperCase();
+    const item={id:`product-${encodeURIComponent(inferredMerchant(merchant,affiliateUrl))}-${id}`,merchant:inferredMerchant(merchant,affiliateUrl),title,category:retailCategory(field(block,['product_type','categoryId']),title),imageUrl,affiliateUrl,price,oldPrice:oldPrice>price?oldPrice:null,currency,discount:discount?`${discount}% off`:null,terms:terms.slice(0,1500),availability:availability||null,inStock,sourceName:'Admitad product feed'};
+    if(safeProduct(item))products.push(item);
     if(products.length>=limit)break;
   }
   return products;
 }
 
 async function limitedText(rawUrl){ const url=String(rawUrl).replace(/&amp;/g,'&').replace(/^http:/i,'https:'); const r=await fetch(url,{headers:{accept:'application/xml,text/xml;q=0.9,*/*;q=0.5','user-agent':'Mozilla/5.0 OneCode product catalog'},signal:AbortSignal.timeout(30000)}); if(!r.ok)throw new Error(`Product feed HTTP ${r.status}`); const reader=r.body.getReader(); let size=0,text=''; const decoder=new TextDecoder(); while(true){const {done,value}=await reader.read(); if(done)break; size+=value.length; text+=decoder.decode(value,{stream:true}); if(size>=MAX_FEED_BYTES){await reader.cancel();break;}} return text; }
-async function saveProducts(products){const target=new URL('data/products.live.json',ROOT),temp=new URL('data/products.live.tmp.json',ROOT);await writeFile(temp,JSON.stringify(products,null,2));await rename(temp,target);}
+async function saveProducts(products){
+  const target=new URL('data/products.live.json',ROOT),temp=new URL('data/products.live.tmp.json',ROOT);
+  let previous=[];try{previous=JSON.parse(await readFile(target,'utf8'))}catch{}
+  const seen=new Map(previous.map(item=>[item.affiliateUrl,item.firstSeenAt]));const now=new Date().toISOString();
+  const snapshot=products.map(item=>({...item,firstSeenAt:item.firstSeenAt||seen.get(item.affiliateUrl)||now,updatedAt:now}));
+  await writeFile(temp,JSON.stringify(snapshot));await rename(temp,target);
+}
 
 export async function syncProducts(){
   try{loadEnv(await readFile(new URL('.env',ROOT),'utf8'))}catch{}
   const clientId=process.env.ADMITAD_CLIENT_ID, clientSecret=process.env.ADMITAD_CLIENT_SECRET, website=process.env.ADMITAD_WEBSITE_ID;
   const manualFeeds=(process.env.ADMITAD_PRODUCT_FEED_URLS||process.env.ADMITAD_PRODUCT_FEED_URL||'').split(/[\r\n,]+/).map(value=>value.trim()).filter(Boolean);
   const groups=[];
+  let hasSnapshot=false;try{hasSnapshot=JSON.parse(await readFile(new URL('data/products.live.json',ROOT),'utf8')).length>0}catch{}
+  const merge=()=>{const seen=new Set();return groups.flat().filter(item=>{const key=item.affiliateUrl;if(seen.has(key))return false;seen.add(key);return true}).slice(0,3000)};
   if(manualFeeds.length){
     for(const feed of manualFeeds){try{groups.push(parseProducts(await limitedText(feed),'AliExpress',2000))}catch(error){console.warn(`Manual product feed: ${error.message}`)}}
-    const initial=groups.flat().filter((item,index,all)=>all.findIndex(other=>other.id===item.id)===index);
-    if(initial.length)await saveProducts(initial);
+    const initial=merge();
+    if(initial.length&&!hasSnapshot){await saveProducts(initial);hasSnapshot=true}
   }
   if(clientId&&clientSecret&&website){
     const token=await fetchAdmitadToken({clientId,clientSecret,scope:'advcampaigns_for_website'});
@@ -59,9 +67,9 @@ export async function syncProducts(){
     const response=await fetch(url,{headers:{authorization:`Bearer ${token}`},signal:AbortSignal.timeout(20000)}); if(!response.ok)throw new Error(`Admitad programs: ${response.status} ${await response.text()}`);
     const programs=(await response.json()).results||[];
     const feeds=programs.flatMap(program=>[...(program.feeds_info||[]).map(f=>f.xml_link),program.products_xml_link].filter(Boolean).slice(0,1).map(link=>({link,program:program.name})));
-    for(const feed of feeds){try{groups.push(parseProducts(await limitedText(feed.link),feed.program,200))}catch(error){console.warn(`${feed.program}: ${error.message}`)}}
+    for(const feed of feeds){try{groups.push(parseProducts(await limitedText(feed.link),feed.program,200));if(!hasSnapshot&&merge().length){await saveProducts(merge());hasSnapshot=true}}catch(error){console.warn(`${feed.program}: ${error.message}`)}}
   }
-  const products=groups.flat().filter((item,index,all)=>all.findIndex(other=>other.id===item.id)===index).slice(0,3000);
+  const products=merge();
   if(!products.length)throw new Error('No configured product feed returned usable products');
   await saveProducts(products);console.log(`Товарный каталог обновлён: ${products.length} позиций.`);return products;
 }
