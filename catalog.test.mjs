@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { selectProducts, balanced } from './public/catalog.js';
-import { parseProducts } from './product-sync.mjs';
+import { parseProducts, mergeProductGroups } from './product-sync.mjs';
 import { retailCategory, safeProduct } from './product-quality.mjs';
 import { createApp } from './app-fixed.mjs';
 
@@ -10,6 +10,12 @@ const products = [
   {id:'2',title:'Cotton blue jacket',merchant:'Style',category:'Fashion',price:60,currency:'USD',firstSeenAt:'2026-09-03'},
   {id:'3',title:'Desk lamp',merchant:'Home',category:'Home',price:30,oldPrice:35,currency:'USD',firstSeenAt:'2026-09-02'},
 ];
+test('catalog cap cannot crowd out a second store; duplicate links are removed',()=>{
+  const big=Array.from({length:20},(_,i)=>({merchant:'Marketplace',affiliateUrl:'https://example.com/'+i}));
+  const small=[{merchant:'Retail store',affiliateUrl:'https://retail.test/item'}];
+  const merged=mergeProductGroups([big,small,big],10);
+  assert.equal(merged.length,10);assert.equal(merged[1].merchant,'Retail store');assert.equal(new Set(merged.map(p=>p.affiliateUrl)).size,10);
+});
 test('search matches reordered words; combined filters and zero maximum work',()=>{
   assert.deepEqual(selectProducts(products,{query:'shirt BLUE'}).map(p=>p.id),['1']);
   assert.deepEqual(selectProducts(products,{sale:true,max:'35',category:'Fashion'}).map(p=>p.id),['1']);

@@ -49,13 +49,30 @@ async function saveProducts(products){
   await writeFile(temp,JSON.stringify(snapshot));await rename(temp,target);
 }
 
+// Reserve space across stores before applying the catalog cap.
+export function mergeProductGroups(groups,limit=3000){
+  const seen=new Set(),stores=new Map();
+  for(const item of groups.flat()){
+    if(seen.has(item.affiliateUrl))continue;seen.add(item.affiliateUrl);
+    if(!stores.has(item.merchant))stores.set(item.merchant,[]);
+    stores.get(item.merchant).push(item);
+  }
+  const rows=[...stores.values()],result=[];
+  for(let i=0;result.length<limit&&rows.some(row=>i<row.length);i++)for(const row of rows){if(row[i])result.push(row[i]);if(result.length===limit)break}
+  return result;
+}
+
 export async function syncProducts(){
   try{loadEnv(await readFile(new URL('.env',ROOT),'utf8'))}catch{}
   const clientId=process.env.ADMITAD_CLIENT_ID, clientSecret=process.env.ADMITAD_CLIENT_SECRET, website=process.env.ADMITAD_WEBSITE_ID;
   const manualFeeds=(process.env.ADMITAD_PRODUCT_FEED_URLS||process.env.ADMITAD_PRODUCT_FEED_URL||'').split(/[\r\n,]+/).map(value=>value.trim()).filter(Boolean);
+  const namedFeeds=JSON.parse(process.env.PRODUCT_FEEDS_JSON||'[]');
+  if(!Array.isArray(namedFeeds)||namedFeeds.some(feed=>!feed.merchant||!https(feed.url)))throw new Error('PRODUCT_FEEDS_JSON must contain merchant and HTTPS feed URL pairs');
   const groups=[];
   let hasSnapshot=false;try{hasSnapshot=JSON.parse(await readFile(new URL('data/products.live.json',ROOT),'utf8')).length>0}catch{}
-  const merge=()=>{const seen=new Set();return groups.flat().filter(item=>{const key=item.affiliateUrl;if(seen.has(key))return false;seen.add(key);return true}).slice(0,3000)};
+  const merge=()=>mergeProductGroups(groups);
+  for(const feed of namedFeeds){try{const items=parseProducts(await limitedText(feed.url),feed.merchant,800);groups.push(items);console.log(`Product feed ${feed.merchant}: ${items.length} usable products`)}catch(error){console.warn(`Product feed ${feed.merchant}: ${error.message}`)}}
+  if(merge().length&&!hasSnapshot){await saveProducts(merge());hasSnapshot=true}
   if(manualFeeds.length){
     for(const feed of manualFeeds){try{groups.push(parseProducts(await limitedText(feed),'AliExpress',2000))}catch(error){console.warn(`Manual product feed: ${error.message}`)}}
     const initial=merge();
@@ -71,7 +88,7 @@ export async function syncProducts(){
   }
   const products=merge();
   if(!products.length)throw new Error('No configured product feed returned usable products');
-  await saveProducts(products);console.log(`Товарный каталог обновлён: ${products.length} позиций.`);return products;
+  await saveProducts(products);console.log(`Товарный каталог обновлён: ${products.length} позиций, ${new Set(products.map(p=>p.merchant)).size} магазинов.`);return products;
 }
 
 function selfTest(){const xml='<shop><offers><offer id="7"><name>Phone</name><available>true</available><price>799</price><oldprice>999</oldprice><currencyId>USD</currencyId><picture>https://img.test/phone.jpg</picture><url>https://www.alibaba.com/product-detail/phone_7.html</url></offer><offer id="8"><name>Gone</name><available>false</available><price>1</price><picture>https://img.test/gone.jpg</picture><url>https://shop.test/gone</url></offer><offer id="9"><name>Custom logo factory hoodie 100 pcs</name><available>true</available><price>4</price><picture>https://img.test/bulk.jpg</picture><url>https://shop.test/bulk</url></offer></offers></shop>';const p=parseProducts(xml,'AliExpress');if(p.length!==1||p[0].discount!=='20% off'||p[0].imageUrl!=='https://img.test/phone.jpg'||p[0].merchant!=='Alibaba'||p[0].inStock!==true)throw new Error('product parser failed');console.log('PRODUCT_SYNC_SELF_TEST_OK')}

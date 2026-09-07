@@ -8,6 +8,8 @@ export function retailCategory(value = '', title = '') {
   if (/\b(?:perfume|lipstick|shampoo|cosmetics?|makeup|nails?|eyelash|eyelashes|eyebrow|wig|wigs|hair|skincare|serum|manicure|pedicure)\b/i.test(text)) return 'Beauty';
   if (/\b(?:baby|maternity|diaper|diapers|nursing|menstrual|menstruation|sanitizer|toothpaste)\b/i.test(text)) return 'Personal Care';
   const categories = [
+    ['Tools & DIY', /\b(?:wrench|welder|welding|drill|sander|saw|bender|toolbox|tool kit|workbench|clamp)s?\b/i],
+    ['Garden & Patio', /\b(?:garden|patio|planter|greenhouse|lawn|irrigation|sprinkler|hydroponic)s?\b/i],
     ['Pet Supplies', /\b(?:pet|dog|cat|aquarium|leash|kennel)s?\b/i],
     ['Jewelry & Watches', /\b(?:jewelry|jewellery|necklace|bracelet|earring|pendant|watch|watches)s?\b/i],
     ['Bags & Accessories', /\b(?:handbag|backpack|wallet|sunglasses|luggage|purse)s?\b/i],
