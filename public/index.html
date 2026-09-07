@@ -129,8 +129,35 @@
     $('subscribe').onclick=async()=>{const email=$('email').value.trim(),consent=$('consent').checked;$('payError').textContent='';const r=await fetch('/api/checkout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email,consent})});const data=await r.json();if(!r.ok){$('payError').textContent=data.error;return}if(data.confirmationUrl){location.href=data.confirmationUrl;return}if(data.provider==='cloudpayments'){if(!window.cp){$('payError').textContent='Secure checkout could not load. Please try again.';return}const widget=new cp.CloudPayments({language:'en-US'});widget.charge({publicId:data.publicId,description:data.description,amount:data.amount,currency:data.currency,accountId:data.accountId,invoiceId:data.invoiceId,email:data.email,requireEmail:true,data:{cloudPayments:{recurrent:data.recurrent}}},async()=>{$('paywall').classList.remove('open');setTimeout(async()=>{await load();modal('accountModal')},1200)},reason=>{$('payError').textContent=reason||'Payment was not completed.'});return}if(data.activated){$('paywall').classList.remove('open');await load();modal('accountModal')}};
     $('cancelSubscription').onclick=async()=>{const r=await fetch('/api/subscription/cancel',{method:'POST'});const data=await r.json();if(data.manageUrl){location.href=data.manageUrl;return}if(r.ok){await load();$('manageStatus').insertAdjacentHTML('beforeend','<p>'+escapeText(data.message)+'</p>')}};
     async function fetchJson(url,attempts=3){let lastError;for(let attempt=0;attempt<attempts;attempt++){try{const r=await fetch(url,{cache:'no-store',signal:AbortSignal.timeout(20000)});if(!r.ok)throw new Error(`HTTP ${r.status}`);return await r.json()}catch(error){lastError=error;if(attempt<attempts-1)await new Promise(resolve=>setTimeout(resolve,800*(attempt+1)))}}throw lastError}
-    async function refreshProducts(){state.productsLoading=true;state.productsError=false;if(!state.products.length)filter();try{const data=await fetchJson('/api/products',1);state.products=data.products||[];state.updatedAt=data.updatedAt||state.products.map(p=>p.updatedAt).filter(Boolean).sort().at(-1);renderMerchantFilter();const currencies=[...new Set(state.products.map(p=>p.currency||'USD'))].sort();const current=$('currencyFilter').value;$('currencyFilter').replaceChildren(...['All',...currencies].map(c=>{const o=document.createElement('option');o.value=c;o.textContent=c==='All'?'All currencies':c;return o}));$('currencyFilter').value=currencies.includes(current)?current:'All';renderCategories();return state.products.length}catch{state.productsError=true;return 0}finally{state.productsLoading=false;filter()}}
-    let productPoll=null,welcomeShown=false;
+    let productRequest=null,productSnapshot='',welcomeShown=false;
+    async function refreshProducts(){
+      if(productRequest)return productRequest;
+      productRequest=(async()=>{
+        state.productsLoading=true;let changed=!state.products.length;
+        if(changed)filter();
+        try{
+          const data=await fetchJson('/api/products',1);
+          if(!Array.isArray(data.products))throw new Error('Invalid product catalog');
+          const snapshot=JSON.stringify(data.products);
+          changed=changed||state.productsError||snapshot!==productSnapshot;
+          state.productsError=false;
+          if(snapshot!==productSnapshot){
+            productSnapshot=snapshot;state.products=data.products;
+            state.updatedAt=data.updatedAt||state.products.map(p=>p.updatedAt).filter(Boolean).sort().at(-1);
+            renderMerchantFilter();
+            const currencies=[...new Set(state.products.map(p=>p.currency||'USD'))].sort(),current=$('currencyFilter').value;
+            $('currencyFilter').replaceChildren(...['All',...currencies].map(c=>{const o=document.createElement('option');o.value=c;o.textContent=c==='All'?'All currencies':c;return o}));
+            $('currencyFilter').value=currencies.includes(current)?current:'All';
+            renderCategories();
+          }
+          return state.products.length;
+        }catch{if(!state.products.length){state.productsError=true;changed=true}return state.products.length}
+        finally{state.productsLoading=false;if(changed)filter()}
+      })();
+      try{return await productRequest}finally{productRequest=null}
+    }
+    setInterval(()=>{if(!document.hidden&&(state.view==='deals'||!state.products.length))refreshProducts()},30000);
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.view==='deals')refreshProducts()});
     async function load(){
       const data=await fetchJson('/api/catalog');state.promos=data.promos;state.session=data.session;state.price=data.priceUsd??5;state.paymentMode=data.paymentMode;
       $('price').textContent=state.price;$('consentPrice').textContent=state.price;$('demoBanner').style.display=data.demoData?'block':'none';
@@ -138,7 +165,7 @@
       updateView();updateAccount();tick();
       let seen=welcomeShown;try{seen=seen||!!sessionStorage.getItem('onecode-welcome-seen')}catch{}
       if(!state.session.subscribed&&!state.session.freeClaimed&&new Date(state.session.expiresAt)>new Date()&&state.view==='codes'&&!seen){welcomeShown=true;try{sessionStorage.setItem('onecode-welcome-seen','1')}catch{}modal('welcomeModal')}
-      refreshProducts().then(count=>{if(productPoll)clearInterval(productPoll);if(!count){let tries=0;productPoll=setInterval(async()=>{tries++;if(await refreshProducts()||tries>=12){clearInterval(productPoll);productPoll=null}},15000)}});
+      refreshProducts();
     }
     async function verifyReturn(){if(new URLSearchParams(location.search).get('payment')!=='return')return;const r=await fetch('/api/payment/verify',{method:'POST'});const data=await r.json();history.replaceState({},'',location.pathname);if(r.ok&&data.activated){await load();modal('accountModal')}else if(data.pending){$('payError').textContent='Payment is processing. Access will activate automatically after confirmation.';modal('paywall')}}
     const checkoutAction=$('subscribe').onclick;

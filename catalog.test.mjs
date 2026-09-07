@@ -28,6 +28,9 @@ test('discovery is diverse and newest uses timestamps',()=>{
   assert.deepEqual(selectProducts(products,{sort:'newest'}).map(p=>p.id),['2','3','1']);
   assert.deepEqual(selectProducts(products,{sort:'discount'}).map(p=>p.id),['1','3','2']);
 });
+test('retail clothing titles are not lost in Other Products',()=>{
+  for(const title of ['Casual Color Block Ruched Bloomers','Urban Split Joint Plaid Lapel Collar Blazer','Linen Blouse','Pleated Skirt','Knitted Cardigan','Wide Leg Trousers','Summer Sandals']) assert.equal(retailCategory('',title),'Clothing & Fashion',title);
+});
 test('product feeds respect stock attributes, Google currency and formatted prices',()=>{
   const offer=(id,attr,body)=>`<offer id="${id}" ${attr}><name>Desk lamp</name><picture>https://example.com/lamp.jpg</picture><url>https://example.com/product/lamp-${id}</url>${body}</offer>`;
   const xml=offer('a','available="false"','<price>10</price>')+offer('b','available="true"','<g:price>1,299.00 USD</g:price><g:sale_price>999.00 USD</g:sale_price>')+offer('c','','<availability>out_of_stock</availability><price>3</price>');

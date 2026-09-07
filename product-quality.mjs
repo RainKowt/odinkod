@@ -13,7 +13,7 @@ export function retailCategory(value = '', title = '') {
     ['Pet Supplies', /\b(?:pet|dog|cat|aquarium|leash|kennel)s?\b/i],
     ['Jewelry & Watches', /\b(?:jewelry|jewellery|necklace|bracelet|earring|pendant|watch|watches)s?\b/i],
     ['Bags & Accessories', /\b(?:handbag|backpack|wallet|sunglasses|luggage|purse)s?\b/i],
-    ['Clothing & Fashion', /\b(?:dress|dresses|shirt|hoodie|jacket|jeans|shoe|sneaker|fashion|apparel|clothing|pants|socks|swimwear|boots|bra)s?\b/i],
+    ['Clothing & Fashion', /\b(?:dress|dresses|shirt|hoodie|jacket|jeans|shoe|sneaker|fashion|apparel|clothing|pants|socks|swimwear|boots|bra|bloomers|blazer|blouse|skirt|cardigan|sweater|sweatshirt|trousers|shorts|jumpsuit|romper|pullover|coat|legging|tunic|sandal|loafer|pajama|bikini)s?\b/i],
     ['Electronics', /\b(?:phone|iphone|smartphone|earbuds|headphones|laptop|tablet|camera|charger|keyboard|speaker|smartwatch|usb|electronic)s?\b/i],
     ['Home & Living', /\b(?:home|furniture|kitchen|decor|chair|desk|table|lamp|bedding|pillow|blanket|cookware|storage|sofa)s?\b/i],
     ['Sports & Outdoors', /\b(?:sport|fitness|outdoor|camping|hiking|cycling|yoga|dumbbell|bicycle|fishing)s?\b/i],
