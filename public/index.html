@@ -70,7 +70,7 @@
     async function selectProduct(p){
       if(selectingProduct)return;selectingProduct=true;
       try{
-      const r=await fetch('/api/product/select',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({productId:p.id})});const data=await r.json();
+      const r=await fetch('/api/product/select',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({productId:p.id}),signal:AbortSignal.timeout(20000)});const data=await r.json();
       if(r.status===402||data.subscribe){modal('paywall');return}if(!r.ok){alert(data.error||'Could not open this product');return}
       if(!data.subscribed&&state.session){state.session.freeClaimed=true;updateAccount();tick()}location.assign(data.url);
       }catch{alert('Could not open the store. Please select the same product to retry.')}finally{selectingProduct=false}
