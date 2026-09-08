@@ -371,6 +371,20 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
         });
         return json(response, result.status, result.body);
       }
+      if (request.method === 'POST' && url.pathname === '/api/product/select') {
+        const id = visitorId(request, config.sessionSecret);
+        if (!id) return json(response, 401, { error: 'Refresh the page and try again.' });
+        const input = await body(request); const products = await loadProducts(); const product = products.find(item => item.id === input.productId);
+        if (!product) return json(response, 404, { error: 'This product is no longer available.' });
+        const result = await mutateState(state => {
+          const visitor = state.visitors[id]; if (!visitor) return { status: 401, body: { error: 'Refresh the page and try again.' } };
+          const subscribed = activeSubscription(visitor); const expired = Date.now() > new Date(visitor.startedAt).getTime() + SESSION_SECONDS * 1000;
+          if (!subscribed && (visitor.freeClaimed || expired)) return { status: 402, body: { error: expired ? 'The free selection window has ended.' : 'Your free selection has already been used.', subscribe: true } };
+          if (!subscribed) { visitor.freeClaimed = true; visitor.freeProductId = product.id; visitor.freeClaimedAt = new Date().toISOString(); }
+          return { status: 200, body: { url: product.affiliateUrl, subscribed } };
+        });
+        return json(response, result.status, result.body);
+      }
       if (request.method === 'POST' && url.pathname === '/api/checkout') {
         const id = visitorId(request, config.sessionSecret); if (!id) return json(response, 401, { error: 'Refresh the page and try again.' });
         const input = await body(request); const email = String(input.email || '').trim();
@@ -401,7 +415,7 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
         await mutateState(state => { const saved = state.visitors[id]?.subscription; if (saved) { saved.autoRenew = false; saved.canceledAt = new Date().toISOString(); } });
         return json(response, 200, { canceled: true, message: 'Auto-renewal is off. Access remains available through the paid period.' });
       }
-      if (request.method === 'GET' && url.pathname === '/api/products') return json(response, 200, { products: await loadProducts() });
+      if (request.method === 'GET' && url.pathname === '/api/products') return json(response, 200, { products: (await loadProducts()).map(({ affiliateUrl, ...item }) => item) });
       if (request.method === 'POST' && url.pathname.startsWith('/api/webhooks/cloudpayments/')) {
         const text = await rawBody(request);
         if (!validCloudSignature(text, request, config.cloudApiSecret)) return json(response, 401, { code: 13 });
@@ -484,6 +498,15 @@ async function selfTest() {
     if (!(await subscribe.json()).activated) throw new Error('demo subscription failed');
     const unlimited = await fetch(base + '/api/reveal', { method:'POST', headers:{'content-type':'application/json',cookie}, body:JSON.stringify({promoId:catalog.promos[0].id}) });
     if (!unlimited.ok) throw new Error('subscriber access failed');
+    const products = await (await fetch(base + '/api/products')).json();
+    if (products.products.some(product => 'affiliateUrl' in product)) throw new Error('product links are exposed before selection');
+    if (products.products.length) {
+      const secondCatalogResponse = await fetch(base + '/api/catalog'); const secondCookie = secondCatalogResponse.headers.get('set-cookie').split(';')[0];
+      const pick = await fetch(base + '/api/product/select', { method:'POST', headers:{'content-type':'application/json',cookie:secondCookie}, body:JSON.stringify({productId:products.products[0].id}) });
+      if (!pick.ok || !(await pick.json()).url) throw new Error('free product selection failed');
+      const secondPick = await fetch(base + '/api/product/select', { method:'POST', headers:{'content-type':'application/json',cookie:secondCookie}, body:JSON.stringify({productId:products.products[0].id}) });
+      if (secondPick.status !== 402) throw new Error('free product limit failed');
+    }
     const cancel = await fetch(base + '/api/subscription/cancel', { method:'POST', headers:{cookie} });
     if (!(await cancel.json()).canceled) throw new Error('cancel failed');
     const privateFile = await fetch(base + '/.env.example'); if (privateFile.status !== 404) throw new Error('private file exposed');
