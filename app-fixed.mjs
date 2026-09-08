@@ -379,6 +379,7 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
         const result = await mutateState(state => {
           const visitor = state.visitors[id]; if (!visitor) return { status: 401, body: { error: 'Refresh the page and try again.' } };
           const subscribed = activeSubscription(visitor); const expired = Date.now() > new Date(visitor.startedAt).getTime() + SESSION_SECONDS * 1000;
+          if (!subscribed && visitor.freeProductId === product.id) return { status: 200, body: { url: product.affiliateUrl, subscribed } };
           if (!subscribed && (visitor.freeClaimed || expired)) return { status: 402, body: { error: expired ? 'The free selection window has ended.' : 'Your free selection has already been used.', subscribe: true } };
           if (!subscribed) { visitor.freeClaimed = true; visitor.freeProductId = product.id; visitor.freeClaimedAt = new Date().toISOString(); }
           return { status: 200, body: { url: product.affiliateUrl, subscribed } };
@@ -505,7 +506,13 @@ async function selfTest() {
       const pick = await fetch(base + '/api/product/select', { method:'POST', headers:{'content-type':'application/json',cookie:secondCookie}, body:JSON.stringify({productId:products.products[0].id}) });
       if (!pick.ok || !(await pick.json()).url) throw new Error('free product selection failed');
       const secondPick = await fetch(base + '/api/product/select', { method:'POST', headers:{'content-type':'application/json',cookie:secondCookie}, body:JSON.stringify({productId:products.products[0].id}) });
-      if (secondPick.status !== 402) throw new Error('free product limit failed');
+      if (!secondPick.ok) throw new Error('selected product retry failed');
+      const crossPick = await fetch(base + '/api/reveal', { method:'POST', headers:{'content-type':'application/json',cookie:secondCookie}, body:JSON.stringify({promoId:catalog.promos[0].id}) });
+      if (crossPick.status !== 402) throw new Error('shared free limit failed');
+      if (products.products.length > 1) {
+        const otherPick = await fetch(base + '/api/product/select', { method:'POST', headers:{'content-type':'application/json',cookie:secondCookie}, body:JSON.stringify({productId:products.products[1].id}) });
+        if (otherPick.status !== 402) throw new Error('second product limit failed');
+      }
     }
     const cancel = await fetch(base + '/api/subscription/cancel', { method:'POST', headers:{cookie} });
     if (!(await cancel.json()).canceled) throw new Error('cancel failed');

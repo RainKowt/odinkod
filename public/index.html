@@ -66,10 +66,14 @@
       const code=document.createElement('div');code.className='code-preview';const blur=document.createElement('span');blur.className='blur';blur.textContent='PROMOCODE';const button=document.createElement('button');button.className='reveal';button.textContent='Choose';button.onclick=()=>reveal(p.id);code.append(blur,button);
       const verified=document.createElement('div');verified.className='verified';const verifiedDate=p.verifiedAt?new Date(p.verifiedAt+'T00:00:00'):null;verified.textContent=verifiedDate&&!Number.isNaN(verifiedDate.getTime())?'Updated '+verifiedDate.toLocaleDateString('en-US'):'Supplied by affiliate network';article.append(merchant,source,title,discount,audience,until,code,verified);return article}
     function formatPrice(value,currency='USD'){try{return new Intl.NumberFormat('en-US',{style:'currency',currency,currencyDisplay:currency==='USD'?'symbol':'code'}).format(value)}catch{return currency+' '+Number(value).toFixed(2)}}
+    let selectingProduct=false;
     async function selectProduct(p){
+      if(selectingProduct)return;selectingProduct=true;
+      try{
       const r=await fetch('/api/product/select',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({productId:p.id})});const data=await r.json();
       if(r.status===402||data.subscribe){modal('paywall');return}if(!r.ok){alert(data.error||'Could not open this product');return}
-      if(!data.subscribed){state.session.freeClaimed=true;updateAccount();tick()}location.assign(data.url);
+      if(!data.subscribed&&state.session){state.session.freeClaimed=true;updateAccount();tick()}location.assign(data.url);
+      }catch{alert('Could not open the store. Please select the same product to retry.')}finally{selectingProduct=false}
     }
     function dealCard(p){
       const article=document.createElement('article');article.className='promo product-card';
