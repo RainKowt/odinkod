@@ -30,7 +30,7 @@
   <main class="wrap">
     <section class="hero" id="hero"><div><span class="eyebrow" id="heroEyebrow">1 code free</span><h1 id="heroTitle">Three minutes.<br><em>One great code.</em></h1><p class="lead" id="heroLead">Choose the discount you actually want. We show the terms, expiration date, and verification date — no spins and no losing outcomes.</p></div><div class="free-card"><b id="freeCount">1</b><span id="freeCountLabel">promo code can be revealed for free. Membership unlocks the full catalog.</span></div></section>
     <div class="demo-banner" id="demoBanner"><b>Demo catalog.</b> These sample codes do not work at checkout. Connect approved affiliate programs to load real offers.</div>
-    <div class="view-tabs" role="tablist" aria-label="Browse offers"><button class="view-tab active" data-view="codes" role="tab">Promo codes</button><button class="view-tab" data-view="deals" role="tab">Deals & products</button></div>
+    <div class="view-tabs" role="tablist" aria-label="Browse offers"><button class="view-tab active" data-view="codes" role="tab">Promo codes</button><button class="view-tab" data-view="deals" role="tab">Deals & products</button><button class="view-tab" data-view="stores" role="tab">Stores</button></div>
     <section class="tools"><input class="search" id="search" placeholder="Search stores or deals" aria-label="Search"><div class="count" id="count" role="status" aria-live="polite"></div></section>
     <section class="advanced-filters" id="productFilters" hidden><select class="filter-field" id="merchantFilter" aria-label="Store"><option value="All">All stores</option></select><select class="filter-field" id="sortFilter" aria-label="Sort"><option value="relevance">Best match</option><option value="price-low">Lowest price</option><option value="price-high">Highest price</option><option value="discount">Biggest discount</option><option value="newest">Newest finds</option></select><input class="filter-field" id="minPrice" type="number" min="0" step="1" placeholder="Min price" aria-label="Minimum price"><input class="filter-field" id="maxPrice" type="number" min="0" step="1" placeholder="Max price" aria-label="Maximum price"><label class="filter-toggle"><input id="discountOnly" type="checkbox"> On sale only</label><label class="filter-toggle"><input id="savedOnly" type="checkbox"> Saved</label><select class="filter-field" id="currencyFilter" aria-label="Price currency"><option value="All">All currencies</option></select><button class="filter-reset" id="resetFilters">Reset all</button></section>
     <p class="filter-help" id="filterHelp" hidden>Browse freely. Your first product selection is free within 3 minutes; membership unlocks unlimited store visits. Prices exclude shipping and tax.</p><section class="deal-summary" id="dealSummary" hidden aria-label="Catalog summary"></section>
@@ -47,7 +47,7 @@
 
   <script type="module">
     import { selectProducts, normalize } from "/catalog.js";
-    const state={promos:[],products:[],filtered:[],category:'All',view:location.hash==='#deals'?'deals':'codes',visibleProducts:48,session:null,price:5,paymentMode:'demo',productsLoading:true,productsError:false,favorites:[],updatedAt:null};
+    const state={promos:[],products:[],filtered:[],category:'All',view:['#deals','#stores'].includes(location.hash)?location.hash.slice(1):'codes',visibleProducts:48,session:null,price:5,paymentMode:'demo',productsLoading:true,productsError:false,favorites:[],updatedAt:null};
     try { state.favorites=JSON.parse(localStorage.getItem('onecode-saved-products')||'[]'); if(!Array.isArray(state.favorites))state.favorites=[]; } catch {}
     const $=id=>document.getElementById(id);
     let lastFocus=null;
@@ -98,7 +98,42 @@
       body.append(title,priceRow,detail,action);article.append(visual,save,body);return article;
     }
     function renderMerchantFilter(){const current=$('merchantFilter').value;const names=['All',...new Set(state.products.map(p=>p.merchant).filter(Boolean))].sort();$('merchantFilter').replaceChildren(...names.map(name=>{const o=document.createElement('option');o.value=name;o.textContent=name==='All'?'All stores':name;return o}));$('merchantFilter').value=names.includes(current)?current:'All'}
+    function renderStores(){
+      const groups=new Map();
+      for(const [kind,items] of [['products',state.products],['codes',state.promos]])for(const p of items){
+        const key=normalize(p.merchant);if(!key)continue;
+        if(!groups.has(key))groups.set(key,{name:p.merchant,products:[],codes:[],categories:new Set()});
+        const store=groups.get(key);store[kind].push(p);if(p.category)store.categories.add(p.category);
+      }
+      const terms=normalize($('search').value).split(/\s+/).filter(Boolean);
+      const stores=[...groups.values()].filter(store=>terms.every(term=>normalize(store.name+' '+[...store.categories].join(' ')).includes(term))).sort((a,b)=>a.name.localeCompare(b.name));
+      $('productFilters').hidden=true;$('dealSummary').hidden=true;$('filterHelp').hidden=true;$('categories').hidden=true;
+      $('grid').classList.remove('products');$('grid').setAttribute('aria-busy','false');
+      $('count').textContent=stores.length+(stores.length===1?' store':' stores');
+      const nodes=stores.map(store=>{
+        const card=document.createElement('article');card.className='promo';
+        const mark=document.createElement('span');mark.className='store-mark';mark.textContent=store.name.slice(0,1).toUpperCase();
+        const title=document.createElement('h2');title.textContent=store.name;
+        const meta=document.createElement('p');meta.className='meta';meta.textContent=[...store.categories].sort().slice(0,3).join(' · ');
+        const counts=document.createElement('p');counts.textContent=store.products.length+' products · '+store.codes.length+' promo codes';
+        card.append(mark,title,meta,counts);
+        for(const [kind,label] of [['products','Browse products'],['codes','Browse promo codes']])if(store[kind].length){
+          const button=document.createElement('button');button.className='secondary';button.textContent=label;
+          button.onclick=()=>{
+            const view=kind==='products'?'deals':'codes';
+            history.replaceState({},'',location.pathname+location.search+(view==='codes'?'':'#'+view));switchView(view);resetFilters();
+            if(kind==='products')$('merchantFilter').value=store.products[0].merchant;else $('search').value=store.name;
+            filter();document.querySelector('.view-tabs').scrollIntoView({behavior:'smooth',block:'start'});
+          };card.append(button);
+        }
+        return card;
+      });
+      if(!nodes.length){const empty=document.createElement('div');empty.className='empty';empty.textContent=state.productsLoading?'Loading partner stores…':'No stores match. Try another name or category.';nodes.push(empty)}
+      $('grid').replaceChildren(...nodes);
+    }
     function filter(){
+      $('categories').hidden=state.view==='stores';
+      if(state.view==='stores'){renderStores();return}
       const deals=state.view==='deals',q=$('search').value.trim();
       state.filtered=deals?selectProducts(state.products,{query:q,category:state.category,merchant:$('merchantFilter').value,min:$('minPrice').value,max:$('maxPrice').value,sale:$('discountOnly').checked,saved:$('savedOnly').checked,favorites:state.favorites,sort:$('sortFilter').value,currency:$('currencyFilter').value}):state.promos.filter(p=>(state.category==='All'||p.category===state.category)&&normalize(q).split(/\s+/).filter(Boolean).every(term=>normalize(p.merchant+' '+p.title+' '+p.category+' '+(p.terms||'')).includes(term)));
       $('productFilters').hidden=!deals;$('dealSummary').hidden=!deals;$('filterHelp').hidden=!deals;
@@ -116,7 +151,7 @@
       }
       $('grid').replaceChildren(...nodes);
     }
-    const viewSearch={codes:'',deals:''};
+    const viewSearch={codes:'',deals:'',stores:''};
     function resetFilters(){$('search').value='';$('merchantFilter').value='All';$('sortFilter').value='relevance';$('currencyFilter').value='All';$('minPrice').value='';$('maxPrice').value='';$('discountOnly').checked=false;$('savedOnly').checked=false;state.category='All';state.visibleProducts=48;renderCategories();filter()}
     function updateView(){
       const deals=state.view==='deals';
@@ -125,6 +160,12 @@
       $('hero').classList.toggle('deals-hero',deals);$('heroEyebrow').textContent=deals?'1 product free':'1 code free';
       $('heroTitle').innerHTML=deals?'Good finds.<br><em>One place.</em>':'Three minutes.<br><em>One great code.</em>';
       $('heroLead').textContent=deals?'Browse partner stores, then select one product within 3 minutes to visit it free. Membership unlocks unlimited product offers.':'Choose the discount you actually want. Check the store, expiration date and terms before revealing your free promo code.';
+      if(state.view==='stores'){
+        $('hero').classList.add('deals-hero');$('heroEyebrow').textContent='Explore partner stores';
+        $('heroTitle').innerHTML='Your stores.<br><em>All together.</em>';
+        $('heroLead').textContent='Find products and promo codes by store. Exploring a store does not use your free selection. Individual offers follow the same membership terms.';
+        $('search').placeholder='Search stores or categories…';
+      }
       renderCategories();filter();
     }
     function switchView(view){viewSearch[state.view]=$('search').value;state.view=view;state.category='All';state.visibleProducts=48;$('search').value=viewSearch[view];updateView()}
@@ -134,8 +175,8 @@
     $('search').oninput=()=>{state.visibleProducts=48;filter()};
     ['merchantFilter','sortFilter','minPrice','maxPrice','discountOnly','savedOnly','currencyFilter'].forEach(id=>$(id).oninput=()=>{state.visibleProducts=48;filter()});
     $('resetFilters').onclick=resetFilters;
-    document.querySelectorAll('[data-view]').forEach(tab=>{tab.onclick=()=>{const view=tab.dataset.view;history.replaceState({},'',location.pathname+location.search+(view==='deals'?'#deals':''));switchView(view)};tab.onkeydown=e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const view=e.key==='Home'?'codes':e.key==='End'?'deals':state.view==='codes'?'deals':'codes';document.querySelector('[data-view="'+view+'"]').click();document.querySelector('[data-view="'+view+'"]').focus()}}});
-    window.addEventListener('hashchange',()=>switchView(location.hash==='#deals'?'deals':'codes'));
+    document.querySelectorAll('[data-view]').forEach(tab=>{tab.onclick=()=>{const view=tab.dataset.view;history.replaceState({},'',location.pathname+location.search+(view==='codes'?'':'#'+view));switchView(view)};tab.onkeydown=e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const views=['codes','deals','stores'];const view=e.key==='Home'?views[0]:e.key==='End'?views.at(-1):views[(views.indexOf(state.view)+(e.key==='ArrowRight'?1:2))%3];document.querySelector('[data-view="'+view+'"]').click();document.querySelector('[data-view="'+view+'"]').focus()}}});
+    window.addEventListener('hashchange',()=>switchView(['#deals','#stores'].includes(location.hash)?location.hash.slice(1):'codes'));
     $('accountButton').onclick=()=>{if(!state.session)return;updateAccount();modal(state.session.subscribed?'accountModal':'paywall')};
     $('manageSubscription').onclick=()=>{$('accountModal').classList.remove('open');modal('manageModal')};
     $('startChoosing').onclick=()=>{$('welcomeModal').classList.remove('open');document.querySelector('.view-tabs').scrollIntoView({behavior:'smooth',block:'start'})};
@@ -169,8 +210,8 @@
       })();
       try{return await productRequest}finally{productRequest=null}
     }
-    setInterval(()=>{if(!document.hidden&&(state.view==='deals'||!state.products.length))refreshProducts()},30000);
-    document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.view==='deals')refreshProducts()});
+    setInterval(()=>{if(!document.hidden&&(['deals','stores'].includes(state.view)||!state.products.length))refreshProducts()},30000);
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden&&['deals','stores'].includes(state.view))refreshProducts()});
     async function load(){
       const data=await fetchJson('/api/catalog');state.promos=data.promos;state.session=data.session;state.price=data.priceUsd??5;state.paymentMode=data.paymentMode;
       $('price').textContent=state.price;$('consentPrice').textContent=state.price;$('demoBanner').style.display=data.demoData?'block':'none';
