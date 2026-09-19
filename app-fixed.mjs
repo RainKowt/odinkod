@@ -180,7 +180,7 @@ async function ensureVisitor(request, response, config) {
     if (/^[A-Z]{2}$/.test(country) && country !== 'XX') visitor.country = country;
     const pageUrl = new URL(request.url, config.baseUrl); const referrer = String(request.headers.referer || '');
     if (!visitor.source) {
-      visitor.source = pageUrl.searchParams.get('utm_source') || (() => { try { return new URL(referrer).hostname.replace(/^www\./, '') || 'Direct'; } catch { return 'Direct'; } })();
+      visitor.source = pageUrl.searchParams.get('utm_source') || (() => { try { const host=new URL(referrer).hostname.replace(/^www\./, ''),own=new URL(config.baseUrl).hostname.replace(/^www\./, ''); return host&&host!==own?host:'Direct'; } catch { return 'Direct'; } })();
       visitor.medium = pageUrl.searchParams.get('utm_medium') || (referrer ? 'referral' : 'direct'); visitor.campaign = pageUrl.searchParams.get('utm_campaign') || '';
     }
     state.events ||= []; state.events.push({ type: 'page_view', visitorId: id, at: now });
