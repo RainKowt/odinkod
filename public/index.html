@@ -24,6 +24,7 @@
     @media(max-width:480px){.advanced-filters .filter-toggle,.advanced-filters .filter-reset{grid-column:auto}.advanced-filters .filter-toggle{min-height:44px}}
     @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}.promo:hover,.product-card:hover,.product-card:hover img{transform:none}}
   </style>
+  <style>[hidden]{display:none!important}.quick-picks{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 14px}.quick-picks strong{font-size:13px}.quick-pick{border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 12px;font-weight:850}.quick-pick:hover,.quick-pick.active{background:var(--blue);border-color:var(--blue);color:#fff}</style>
 </head>
 <body>
   <div class="top"><nav class="wrap"><a class="brand" href="/" aria-label="OneCode home">One<i>Code</i></a><div class="timer">Free pick <span id="timer">03:00</span></div><button class="account" id="accountButton">Unlimited for $5</button></nav></div>
@@ -33,7 +34,7 @@
     <div class="view-tabs" role="tablist" aria-label="Browse offers"><button class="view-tab active" data-view="codes" role="tab">Promo codes</button><button class="view-tab" data-view="deals" role="tab">Deals & products</button><button class="view-tab" data-view="stores" role="tab">Stores</button></div>
     <section class="tools"><input class="search" id="search" placeholder="Search stores or deals" aria-label="Search"><div class="count" id="count" role="status" aria-live="polite"></div></section>
     <section class="advanced-filters" id="productFilters" hidden><select class="filter-field" id="merchantFilter" aria-label="Store"><option value="All">All stores</option></select><select class="filter-field" id="sortFilter" aria-label="Sort"><option value="relevance">Best match</option><option value="price-low">Lowest price</option><option value="price-high">Highest price</option><option value="discount">Biggest discount</option><option value="newest">Newest finds</option></select><input class="filter-field" id="minPrice" type="number" min="0" step="1" placeholder="Min price" aria-label="Minimum price"><input class="filter-field" id="maxPrice" type="number" min="0" step="1" placeholder="Max price" aria-label="Maximum price"><label class="filter-toggle"><input id="discountOnly" type="checkbox"> On sale only</label><label class="filter-toggle"><input id="savedOnly" type="checkbox"> Saved</label><select class="filter-field" id="currencyFilter" aria-label="Price currency"><option value="All">All currencies</option></select><button class="filter-reset" id="resetFilters">Reset all</button></section>
-    <p class="filter-help" id="filterHelp" hidden>Browse freely. Your first product selection is free within 3 minutes; membership unlocks unlimited store visits. Prices exclude shipping and tax.</p><section class="deal-summary" id="dealSummary" hidden aria-label="Catalog summary"></section>
+    <section class="quick-picks" id="quickPicks" hidden aria-label="Quick product collections"><strong>Quick picks</strong><button class="quick-pick" data-budget="25">Under $25</button><button class="quick-pick" data-budget="50">Under $50</button><button class="quick-pick" data-budget="100">Under $100</button><button class="quick-pick" data-budget="sale">Biggest discounts</button></section><p class="filter-help" id="filterHelp" hidden>Browse freely. Your first product selection is free within 3 minutes; membership unlocks unlimited store visits. Prices exclude shipping and tax.</p><section class="deal-summary" id="dealSummary" hidden aria-label="Catalog summary"></section>
     <div class="categories" id="categories"></div><section class="grid" id="grid" aria-label="Offers"></section>
   </main>
   <footer><div class="wrap footer-row"><span>© 2026 OneCode</span><span>Promo codes are supplied by merchants and affiliate networks. Check final terms and availability before purchasing.</span><a href="/legal.html">Privacy, terms & refunds</a><a href="https://app.lava.top/my-purchases" target="_blank" rel="noopener">Manage or cancel subscription</a></div></footer>
@@ -98,16 +99,17 @@
       body.append(title,priceRow,detail,action);article.append(visual,save,body);return article;
     }
     function renderMerchantFilter(){const current=$('merchantFilter').value;const names=['All',...new Set(state.products.map(p=>p.merchant).filter(Boolean))].sort();$('merchantFilter').replaceChildren(...names.map(name=>{const o=document.createElement('option');o.value=name;o.textContent=name==='All'?'All stores':name;return o}));$('merchantFilter').value=names.includes(current)?current:'All'}
+    function merchantIdentity(name=''){const raw=String(name).trim();const display=raw.replace(/\s+(?:WW|Many GEOs?|US|USA)$/i,'').trim()||raw;return {key:normalize(display),display}}
     function renderStores(){
       const groups=new Map();
       for(const [kind,items] of [['products',state.products],['codes',state.promos]])for(const p of items){
-        const key=normalize(p.merchant);if(!key)continue;
-        if(!groups.has(key))groups.set(key,{name:p.merchant,products:[],codes:[],categories:new Set()});
+        const identity=merchantIdentity(p.merchant),key=identity.key;if(!key)continue;
+        if(!groups.has(key))groups.set(key,{name:identity.display,products:[],codes:[],categories:new Set()});
         const store=groups.get(key);store[kind].push(p);if(p.category)store.categories.add(p.category);
       }
       const terms=normalize($('search').value).split(/\s+/).filter(Boolean);
       const stores=[...groups.values()].filter(store=>terms.every(term=>normalize(store.name+' '+[...store.categories].join(' ')).includes(term))).sort((a,b)=>a.name.localeCompare(b.name));
-      $('productFilters').hidden=true;$('dealSummary').hidden=true;$('filterHelp').hidden=true;$('categories').hidden=true;
+      $('productFilters').hidden=true;$('dealSummary').hidden=true;$('filterHelp').hidden=true;$('quickPicks').hidden=true;$('categories').hidden=true;
       $('grid').classList.remove('products');$('grid').setAttribute('aria-busy','false');
       $('count').textContent=stores.length+(stores.length===1?' store':' stores');
       const nodes=stores.map(store=>{
@@ -122,7 +124,7 @@
           button.onclick=()=>{
             const view=kind==='products'?'deals':'codes';
             history.replaceState({},'',location.pathname+location.search+(view==='codes'?'':'#'+view));switchView(view);resetFilters();
-            if(kind==='products')$('merchantFilter').value=store.products[0].merchant;else $('search').value=store.name;
+            if(kind==='products')$('merchantFilter').value=store.products[0].merchant;else $('search').value=store.codes[0].merchant;
             filter();document.querySelector('.view-tabs').scrollIntoView({behavior:'smooth',block:'start'});
           };card.append(button);
         }
@@ -136,7 +138,7 @@
       if(state.view==='stores'){renderStores();return}
       const deals=state.view==='deals',q=$('search').value.trim();
       state.filtered=deals?selectProducts(state.products,{query:q,category:state.category,merchant:$('merchantFilter').value,min:$('minPrice').value,max:$('maxPrice').value,sale:$('discountOnly').checked,saved:$('savedOnly').checked,favorites:state.favorites,sort:$('sortFilter').value,currency:$('currencyFilter').value}):state.promos.filter(p=>(state.category==='All'||p.category===state.category)&&normalize(q).split(/\s+/).filter(Boolean).every(term=>normalize(p.merchant+' '+p.title+' '+p.category+' '+(p.terms||'')).includes(term)));
-      $('productFilters').hidden=!deals;$('dealSummary').hidden=!deals;$('filterHelp').hidden=!deals;
+      $('productFilters').hidden=!deals;$('dealSummary').hidden=!deals;$('filterHelp').hidden=!deals;$('quickPicks').hidden=!deals;
       const summary=[state.products.length.toLocaleString('en-US')+' products',new Set(state.products.map(p=>p.merchant)).size+(new Set(state.products.map(p=>p.merchant)).size===1?' store':' stores'),new Set(state.products.map(p=>p.category)).size+' categories'];
       if(state.updatedAt)summary.push('Updated '+new Date(state.updatedAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}));
       $('dealSummary').replaceChildren(...summary.map(text=>{const el=document.createElement('span');el.className='summary-pill';el.textContent=text;return el}));
@@ -153,6 +155,7 @@
     }
     const viewSearch={codes:'',deals:'',stores:''};
     function resetFilters(){$('search').value='';$('merchantFilter').value='All';$('sortFilter').value='relevance';$('currencyFilter').value='All';$('minPrice').value='';$('maxPrice').value='';$('discountOnly').checked=false;$('savedOnly').checked=false;state.category='All';state.visibleProducts=48;renderCategories();filter()}
+    document.querySelectorAll('[data-budget]').forEach(button=>button.onclick=()=>{resetFilters();const choice=button.dataset.budget;if(choice==='sale'){$('discountOnly').checked=true;$('sortFilter').value='discount'}else{$('maxPrice').value=choice;$('currencyFilter').value=[...$('currencyFilter').options].some(o=>o.value==='USD')?'USD':'All'}document.querySelectorAll('[data-budget]').forEach(b=>b.classList.toggle('active',b===button));filter()});
     function updateView(){
       const deals=state.view==='deals';
       document.querySelectorAll('[data-view]').forEach(tab=>{const active=tab.dataset.view===state.view;tab.classList.toggle('active',active);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1});
@@ -213,7 +216,7 @@
     setInterval(()=>{if(!document.hidden&&(['deals','stores'].includes(state.view)||!state.products.length))refreshProducts()},30000);
     document.addEventListener('visibilitychange',()=>{if(!document.hidden&&['deals','stores'].includes(state.view))refreshProducts()});
     async function load(){
-      const data=await fetchJson('/api/catalog');state.promos=data.promos;state.session=data.session;state.price=data.priceUsd??5;state.paymentMode=data.paymentMode;
+      const acquisition=new URLSearchParams(location.search);const analyticsQuery=new URLSearchParams();for(const key of ['utm_source','utm_medium','utm_campaign'])if(acquisition.get(key))analyticsQuery.set(key,acquisition.get(key));const data=await fetchJson('/api/catalog'+(analyticsQuery.size?'?'+analyticsQuery:''));state.promos=data.promos;state.session=data.session;state.price=data.priceUsd??5;state.paymentMode=data.paymentMode;
       $('price').textContent=state.price;$('consentPrice').textContent=state.price;$('demoBanner').style.display=data.demoData?'block':'none';
       $('paymentNote').textContent=state.paymentMode==='demo'?'Demo checkout: no money will be charged.':'Secure checkout and recurring billing are provided by lava.top; OneCode does not receive or store card details.';
       updateView();updateAccount();tick();

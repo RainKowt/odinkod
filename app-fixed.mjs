@@ -45,6 +45,7 @@ export async function settings() {
     lavaWebhookSecret: process.env.LAVA_WEBHOOK_SECRET,
     lavaOfferId: process.env.LAVA_OFFER_ID,
     lavaProductId: process.env.LAVA_PRODUCT_ID,
+    adminToken: process.env.ADMIN_TOKEN,
     autoJobs: process.env.AUTO_JOBS !== 'false',
     promoSyncMinutes: Math.max(15, Number(process.env.PROMO_SYNC_MINUTES || 60)),
     billingMinutes: Math.max(5, Number(process.env.BILLING_INTERVAL_MINUTES || 15))
@@ -171,8 +172,20 @@ async function ensureVisitor(request, response, config) {
   let created = false;
   if (!id) { id = randomUUID(); created = true; }
   const visitor = await mutateState(state => {
-    if (!state.visitors[id]) state.visitors[id] = { id, startedAt: new Date().toISOString(), freeClaimed: false };
-    return state.visitors[id];
+    const now = new Date().toISOString();
+    if (!state.visitors[id]) state.visitors[id] = { id, startedAt: now, freeClaimed: false, views: 0 };
+    const visitor = state.visitors[id];
+    visitor.lastSeenAt = now; visitor.views = Number(visitor.views || 0) + 1;
+    const country = String(request.headers['cf-ipcountry'] || request.headers['x-vercel-ip-country'] || request.headers['x-country-code'] || '').toUpperCase();
+    if (/^[A-Z]{2}$/.test(country) && country !== 'XX') visitor.country = country;
+    const pageUrl = new URL(request.url, config.baseUrl); const referrer = String(request.headers.referer || '');
+    if (!visitor.source) {
+      visitor.source = pageUrl.searchParams.get('utm_source') || (() => { try { return new URL(referrer).hostname.replace(/^www\./, '') || 'Direct'; } catch { return 'Direct'; } })();
+      visitor.medium = pageUrl.searchParams.get('utm_medium') || (referrer ? 'referral' : 'direct'); visitor.campaign = pageUrl.searchParams.get('utm_campaign') || '';
+    }
+    state.events ||= []; state.events.push({ type: 'page_view', visitorId: id, at: now });
+    if (state.events.length > 50000) state.events.splice(0, state.events.length - 50000);
+    return visitor;
   });
   return { id, visitor, cookie: created ? sessionCookie(id, config.sessionSecret) : null };
 }
@@ -205,6 +218,27 @@ async function createCheckout(config, visitorId, email) {
     state.visitors[visitorId].pendingPaymentId = payment.id;
   });
   return payment.confirmation?.confirmation_url;
+}
+
+function adminAuthorized(request, config) {
+  const expected = String(config.adminToken || ''); const supplied = String(request.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (!expected || !supplied) return false;
+  const a = Buffer.from(supplied); const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function analyticsSnapshot(state, days = 30) {
+  days = Math.min(365, Math.max(1, Number(days) || 30)); const now = Date.now(), since = now - days * 864e5;
+  const visitors = Object.values(state.visitors || {}), payments = Object.values(state.payments || {}), events = (state.events || []).filter(e => new Date(e.at).getTime() >= since);
+  const inRange = visitors.filter(v => new Date(v.startedAt).getTime() >= since), active = visitors.filter(v => activeSubscription(v));
+  const succeeded = payments.filter(p => p.status === 'succeeded' && new Date(p.verifiedAt || p.createdAt).getTime() >= since), pending = payments.filter(p => p.status === 'pending' && new Date(p.createdAt).getTime() >= since);
+  const countBy = (items, key) => Object.entries(items.reduce((out, item) => { const value = key(item) || 'Unknown'; out[value] = (out[value] || 0) + 1; return out; }, {})).sort((a,b) => b[1]-a[1]).map(([name,value]) => ({ name, value }));
+  const daily = new Map(); for (let offset=days-1; offset>=0; offset--) { const key=new Date(now-offset*864e5).toISOString().slice(0,10); daily.set(key,{date:key,visitors:0,views:0,interests:0,checkouts:0,purchases:0}); }
+  for (const visitor of inRange) { const row=daily.get(String(visitor.startedAt).slice(0,10)); if(row)row.visitors++; }
+  for (const event of events) { const row=daily.get(String(event.at).slice(0,10)); if(!row)continue; if(event.type==='page_view')row.views++; if(['promo_reveal','product_click'].includes(event.type))row.interests++; if(event.type==='checkout_started')row.checkouts++; }
+  for (const payment of succeeded) { const row=daily.get(String(payment.verifiedAt||payment.createdAt).slice(0,10)); if(row)row.purchases++; }
+  const interests=events.filter(e=>['promo_reveal','product_click'].includes(e.type)), checkoutStarts=events.filter(e=>e.type==='checkout_started').length;
+  return { generatedAt:new Date().toISOString(), rangeDays:days, totals:{ visitors:inRange.length, views:events.filter(e=>e.type==='page_view').length, interestedVisitors:new Set(interests.map(e=>e.visitorId)).size, interactions:interests.length, checkoutStarts, purchases:succeeded.length, activeSubscriptions:active.length, pendingPayments:pending.length, revenue:succeeded.reduce((sum,p)=>sum+Number(p.amount||0),0), currency:succeeded[0]?.currency||'USD', visitorToPurchase:inRange.length?succeeded.length/inRange.length:0, checkoutToPurchase:checkoutStarts?succeeded.length/checkoutStarts:0 }, daily:[...daily.values()], countries:countBy(inRange,v=>v.country||'Unknown').slice(0,30), sources:countBy(inRange,v=>v.source||'Direct').slice(0,20), interests:countBy(interests,e=>e.label||e.merchant||e.kind||'Other').slice(0,20), paymentProviders:countBy(succeeded,p=>p.provider||'Other'), recentPayments:succeeded.sort((a,b)=>new Date(b.verifiedAt||b.createdAt)-new Date(a.verifiedAt||a.createdAt)).slice(0,25).map(p=>({provider:p.provider||'Other',amount:Number(p.amount||0),currency:p.currency||'USD',status:p.status,at:p.verifiedAt||p.createdAt})) };
 }
 
 async function createCloudCheckout(config, visitorId, email) {
@@ -336,7 +370,7 @@ async function recordCanceledPayment(config, paymentId) {
 async function serveStatic(request, response) {
   const url = new URL(request.url, 'http://localhost');
   const name = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\/+/, '');
-  const allowed=['index.html','catalog.js','legal.html','robots.txt','sitemap.xml','favicon.svg','social-card.png'];
+  const allowed=['index.html','admin.html','catalog.js','legal.html','robots.txt','sitemap.xml','favicon.svg','social-card.png'];
   if (!allowed.includes(name)) return response.writeHead(404).end('Not found');
   const path = resolve(PUBLIC, name);
   if (!path.startsWith(PUBLIC + sep)) return response.writeHead(404).end('Not found');
@@ -352,6 +386,17 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
     try {
       const url = new URL(request.url, 'http://localhost');
       if (request.method === 'GET' && url.pathname === '/health') return json(response, 200, { ok: true, product: 'OneCode', market: 'US', paymentMode: config.paymentMode });
+      if (request.method === 'GET' && url.pathname === '/api/admin/analytics') {
+        if (!adminAuthorized(request, config)) return json(response, 401, { error: 'Owner access required.' });
+        return json(response, 200, analyticsSnapshot(await loadState(), url.searchParams.get('days')));
+      }
+      if (request.method === 'POST' && url.pathname === '/api/event') {
+        const id = visitorId(request, config.sessionSecret); if (!id) return json(response, 204, {});
+        const input = await body(request); const allowed = new Set(['view_codes','view_deals','view_stores','search','paywall_view']);
+        if (!allowed.has(input.type)) return json(response, 400, { error: 'Unknown event.' });
+        await mutateState(state => { state.events ||= []; state.events.push({type:input.type,visitorId:id,at:new Date().toISOString(),kind:String(input.kind||'').slice(0,40),merchant:String(input.merchant||'').slice(0,100),label:String(input.label||'').slice(0,160)}); if(state.events.length>50000)state.events.splice(0,state.events.length-50000); });
+        return json(response, 204, {});
+      }
       if (request.method === 'GET' && url.pathname === '/api/catalog') {
         const { visitor, cookie } = await ensureVisitor(request, response, config);
         const promos = await loadPromos();
@@ -367,6 +412,7 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
           const subscribed = activeSubscription(visitor); const expired = Date.now() > new Date(visitor.startedAt).getTime() + SESSION_SECONDS * 1000;
           if (!subscribed && (visitor.freeClaimed || expired)) return { status: 402, body: { error: expired ? 'The free session has ended.' : 'Your free promo code has already been selected.', subscribe: true } };
           if (!subscribed) { visitor.freeClaimed = true; visitor.freePromoId = promo.id; visitor.freeClaimedAt = new Date().toISOString(); }
+          state.events ||= []; state.events.push({ type:'promo_reveal', visitorId:id, at:new Date().toISOString(), merchant:promo.merchant, label:promo.title });
           return { status: 200, body: { promo: { ...publicPromo(promo), code: promo.code }, subscribed } };
         });
         return json(response, result.status, result.body);
@@ -382,6 +428,7 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
           if (!subscribed && visitor.freeProductId === product.id) return { status: 200, body: { url: product.affiliateUrl, subscribed } };
           if (!subscribed && (visitor.freeClaimed || expired)) return { status: 402, body: { error: expired ? 'The free selection window has ended.' : 'Your free selection has already been used.', subscribe: true } };
           if (!subscribed) { visitor.freeClaimed = true; visitor.freeProductId = product.id; visitor.freeClaimedAt = new Date().toISOString(); }
+          state.events ||= []; state.events.push({ type:'product_click', visitorId:id, at:new Date().toISOString(), merchant:product.merchant, label:product.title });
           return { status: 200, body: { url: product.affiliateUrl, subscribed } };
         });
         return json(response, result.status, result.body);
@@ -391,6 +438,7 @@ export async function createApp({ port, host = '127.0.0.1', config: provided } =
         const input = await body(request); const email = String(input.email || '').trim();
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json(response, 400, { error: 'Enter a valid email address for your receipt.' });
         if (!input.consent) return json(response, 400, { error: 'Confirm the recurring billing terms to continue.' });
+        await mutateState(state => { state.events ||= []; state.events.push({type:'checkout_started',visitorId:id,at:new Date().toISOString(),kind:config.paymentMode}); });
         if (config.paymentMode === 'demo') {
           await mutateState(state => { state.visitors[id].subscription = { status: 'active', autoRenew: true, demo: true, email, startedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 30 * 864e5).toISOString() }; });
           return json(response, 200, { demo: true, activated: true });

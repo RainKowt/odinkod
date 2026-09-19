@@ -60,3 +60,6 @@ CloudPayments получает карточные данные напрямую 
 ## Важная модель продукта
 
 Плата взимается за доступ к каталогу, а не за шанс выиграть. Пользователь сам выбирает предложение, проигрышных вариантов нет. Таймер ограничивает бесплатную сессию, но не изображает ложный срок действия скидки.
+# Owner analytics
+
+Set `ADMIN_TOKEN` to a long random value, then open `/admin.html` and enter that value. The dashboard reports first-party visits, offer selections, checkout starts, verified subscription payments, sources and countries. It does not replace affiliate-network reports for purchases completed on partner stores.
